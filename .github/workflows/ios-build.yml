@@ -1,4 +1,4 @@
-name: Build iOS IPA (Fara Exceptii)
+name: Build iOS IPA (Tauri Native)
 
 on:
   workflow_dispatch:
@@ -22,59 +22,41 @@ jobs:
       - name: 3. Install pnpm
         run: npm install -g pnpm
 
-      - name: 4. Install Dependencies
+      - name: 4. Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: 5. Install Dependencies
         working-directory: ./desktop
         run: pnpm install
 
-      - name: 5. Build Interfata (React/Vite)
+      - name: 6. Install Tauri CLI
         working-directory: ./desktop
-        run: pnpm run build
+        run: pnpm add -D @tauri-apps/cli
 
-      - name: 6. Injectare Bypass pentru Tauri
-        working-directory: ./desktop
-        run: |
-          sed -i '' 's|<head>|<head><script>window.__TAURI_INTERNALS__={invoke:()=>Promise.resolve()};window.__TAURI__={invoke:()=>Promise.resolve()};</script>|' dist/index.html
-
-      - name: 7. Integrare Capacitor pentru iOS
+      - name: 7. Tauri iOS Init
         working-directory: ./desktop
         run: |
-          pnpm add @capacitor/core @capacitor/ios
-          pnpm add -D @capacitor/cli
+          echo "--- tauri ios init ---"
+          npx tauri ios init
 
-          echo "--- cap init ---"
-          npx cap init "SoundCloud" "com.dragos.soundcloud" --web-dir dist
+          echo "--- Continut src-tauri/gen/apple ---"
+          find src-tauri/gen/apple -maxdepth 3
 
-          echo "--- cap add ios ---"
-          npx cap add ios
-
-          echo "--- Continut desktop/ios dupa add ---"
-          find ios -maxdepth 4
-
-          echo "--- cap sync ios ---"
-          npx cap sync ios
-
-          echo "--- Continut desktop/ios/App dupa sync ---"
-          ls -la ios/App/
-
-      - name: 8. Compilare IPA nesemnat cu Xcode
-        working-directory: ./desktop/ios/App
+      - name: 8. Tauri iOS Build
+        working-directory: ./desktop
         run: |
-          xcodebuild -project App.xcodeproj \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            archive -archivePath $PWD/build/App.xcarchive
+          npx tauri ios build --target aarch64
 
-          mkdir -p Payload
-          cp -r build/App.xcarchive/Products/Applications/App.app Payload/
-          zip -qr SoundCloud-iOS.ipa Payload
+      - name: 9. Locate si Upload IPA
+        run: |
+          echo "--- Cautare fisiere .ipa ---"
+          find desktop/src-tauri/gen/apple -name "*.ipa" -o -name "*.xcarchive"
 
-      - name: 9. Upload IPA ca Artifact
+      - name: 10. Upload IPA ca Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SoundCloud-iOS-IPA
-          path: ./desktop/ios/App/SoundCloud-iOS.ipa
+          name: SoundCloud-iOS-IPA-Native
+          path: |
+            desktop/src-tauri/gen/apple/**/*.ipa
