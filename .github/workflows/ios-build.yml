@@ -133,33 +133,48 @@ jobs:
 
           mkdir -p "$PROFILE_DIR"
 
-          echo "$IOS_MOBILE_PROVISION" | tr -d '\r\n ' | base64 --decode \
+          echo "=== Decoding provisioning profile ==="
+
+          printf '%s' "$IOS_MOBILE_PROVISION" |
+            tr -d '\r\n ' |
+            base64 --decode \
             > "$RUNNER_TEMP/profile.mobileprovision"
+
+          echo "=== Checking provisioning profile file ==="
+
+          ls -lh "$RUNNER_TEMP/profile.mobileprovision"
+
+          FILE_SIZE=$(wc -c < "$RUNNER_TEMP/profile.mobileprovision")
+
+          if [ "$FILE_SIZE" -eq 0 ]; then
+            echo "ERROR: Provisioning profile is empty."
+            exit 1
+          fi
+
+          echo "Provisioning profile size: $FILE_SIZE bytes"
 
           echo "=== Reading provisioning profile ==="
 
+          security cms -D \
+            -i "$RUNNER_TEMP/profile.mobileprovision" \
+            > "$RUNNER_TEMP/profile.plist"
+
           PROFILE_UUID=$(
-            security cms -D \
-              -i "$RUNNER_TEMP/profile.mobileprovision" |
             /usr/libexec/PlistBuddy \
               -c "Print :UUID" \
-              /dev/stdin
+              "$RUNNER_TEMP/profile.plist"
           )
 
           PROFILE_NAME=$(
-            security cms -D \
-              -i "$RUNNER_TEMP/profile.mobileprovision" |
             /usr/libexec/PlistBuddy \
               -c "Print :Name" \
-              /dev/stdin
+              "$RUNNER_TEMP/profile.plist"
           )
 
           PROFILE_TEAM=$(
-            security cms -D \
-              -i "$RUNNER_TEMP/profile.mobileprovision" |
             /usr/libexec/PlistBuddy \
               -c "Print :TeamIdentifier:0" \
-              /dev/stdin
+              "$RUNNER_TEMP/profile.plist"
           )
 
           echo "Profile name: $PROFILE_NAME"
@@ -170,9 +185,7 @@ jobs:
             "$RUNNER_TEMP/profile.mobileprovision" \
             "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
 
-          echo "=== Provisioning profile installed successfully ==="
-
-      - name: 12. Verify Apple signing identity
+          echo "=== Provisioning profile installed successfully ==="      - name: 12. Verify Apple signing identity
         run: |
           echo "=== Available signing identities ==="
 
