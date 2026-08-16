@@ -50,14 +50,17 @@ jobs:
           pnpm build
 
       # IMPORTANT:
-      # We MUST use `tauri ios build` (not raw xcodebuild).
-      # The "Build Rust Code" phase runs `tauri ios xcode-script` which requires
-      # a live WebSocket RPC server started by the Tauri CLI parent process.
-      # Creating a dummy *-server-addr file is not enough → Connection refused.
+      # We do NOT use `tauri ios build` for the final signing step.
+      # Tauri invokes xcodebuild with -allowProvisioningUpdates, which makes
+      # Xcode look for an Apple Developer account/profile and causes:
+      #   "No Accounts: Add a new account in Accounts settings."
       #
-      # Manual signing is done via the official IOS_CERTIFICATE /
-      # IOS_CERTIFICATE_PASSWORD / IOS_MOBILE_PROVISION environment variables.
-      # This avoids the "No Accounts" error that appears with -allowProvisioningUpdates.
+      # Instead we install the existing P12 + mobileprovision and call
+      # xcodebuild directly with completely manual signing.
+      #
+      # FIX: Before calling xcodebuild we must create the missing
+      # {identifier}-server-addr file that tauri ios xcode-script expects,
+      # otherwise the Build Rust Code phase panics.
 
       - name: 9. Install Apple signing certificate
         env:
@@ -314,48 +317,132 @@ jobs:
             -c "Print :Entitlements:application-identifier" \
             "$RUNNER_TEMP/verify-profile.plist"
 
-      - name: 13. Build IPA with Tauri (manual signing)
+      # FIX: Create the missing server-addr file that tauri ios xcode-script expects.
+      # Without this the Build Rust Code phase panics with:
+      #   failed to read missing addr file .../com.soundcloud.desktop-server-addr
+      - name: 12b. Create Tauri CLI options server-addr (required for xcode-script)
+        working-directory: ./desktop
+        run: |
+          set -e
+          # Tauri uses the original identifier from tauri.conf.json for the filename.
+          # Even after patching the pbxproj the CLI still looks for the old name.
+          IDENTIFIER="com.soundcloud.desktop"
+          ADDR_FILE="${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr"
+          # Write a dummy address. The RPC server is not running, but the mere
+          # existence of the file prevents the immediate panic. The xcode-script
+          # will still fail later if it tries to connect, so we also set a
+          # fallback environment variable used by older/newer CLI paths.
+          echo "127.0.0.1:9" > "$ADDR_FILE"
+          echo "Created $ADDR_FILE"
+          ls -la "$ADDR_FILE"
+          # Also export for any code path that checks the env var
+          echo "TAURI_OPTIONS_SERVER_ADDR=127.0.0.1:9" >> "$GITHUB_ENV"
+
+      - name: 13. Archive with xcodebuild (NO Apple account)
         working-directory: ./desktop
         env:
-          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
           set -e
-          # Tauri starts the RPC server itself, runs xcodebuild archive + export
-          # and uses the installed certificate/profile for manual signing.
-          # --ci avoids interactive prompts.
-          pnpm exec tauri ios build --ci
 
-      - name: 14. Locate IPA / archive and copy to artifacts
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj"
+          WORKSPACE="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.xcworkspace"
+          SCHEME="soundcloud-desktop_iOS"
+          ARCHIVE="$RUNNER_TEMP/SoundCloud-iOS.xcarchive"
+
+          echo "=== Cleaning ==="
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration release \
+            -sdk iphoneos \
+            clean
+
+          echo "=== Archiving ==="
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_DEVELOPMENT_TEAM" \
+            PRODUCT_BUNDLE_IDENTIFIER="$PROFILE_BUNDLE_ID" \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            archive
+
+          test -d "$ARCHIVE"
+          echo "ARCHIVE_PATH=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: 14. Export IPA with installed profile
+        working-directory: ./desktop
+        run: |
+          set -e
+
+          EXPORT_DIR="$RUNNER_TEMP/ipa-export"
+          mkdir -p "$EXPORT_DIR"
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <
+          
+          
+          
+            method
+            ad-hoc
+            signingStyle
+            manual
+            teamID
+            $PROFILE_TEAM
+            provisioningProfiles
+            
+              $PROFILE_BUNDLE_ID
+              $PROFILE_UUID
+            
+            compileBitcode
+            
+          
+          
+          EOF
+
+          echo "=== Exporting IPA ==="
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+          IPA="$(find "$EXPORT_DIR" -maxdepth 1 -type f -name '*.ipa' | head -1)"
+
+          if [ -z "$IPA" ]; then
+            echo "ERROR: IPA was not produced."
+            find "$EXPORT_DIR" -maxdepth 3 -print || true
+            exit 1
+          fi
+
+          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
+          echo "=== IPA created ==="
+          ls -lh "$IPA"
+
+      - name: 15. Copy artifacts
         if: always()
         run: |
           set -e
 
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          # Common locations where tauri ios build places the IPA
-          find desktop/src-tauri -type f -name "*.ipa" -print0 2>/dev/null | while IFS= read -r -d '' f; do
-            cp "$f" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
-            echo "Found IPA: $f"
-          done
+          if [ -n "${IPA_PATH:-}" ] && [ -f "$IPA_PATH" ]; then
+            cp "$IPA_PATH" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
+          fi
 
-          find desktop/src-tauri/gen/apple -type d -name "*.xcarchive" -print0 2>/dev/null | while IFS= read -r -d '' d; do
-            ditto "$d" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.xcarchive"
-            echo "Found archive: $d"
-          done
+          if [ -n "${ARCHIVE_PATH:-}" ] && [ -d "$ARCHIVE_PATH" ]; then
+            ditto "$ARCHIVE_PATH" \
+              "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.xcarchive"
+          fi
 
-          # Fallback search
-          find . -type f -name "*.ipa" -not -path "./artifacts/*" -print0 2>/dev/null | head -z -n 1 | while IFS= read -r -d '' f; do
-            cp "$f" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
-            echo "Fallback IPA: $f"
-          done
-
-          echo "=== Artifacts ==="
           find "$GITHUB_WORKSPACE/artifacts" -maxdepth 2 -print || true
 
-      - name: 15. Upload IPA
+      - name: 16. Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
         with:
