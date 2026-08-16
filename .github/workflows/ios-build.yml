@@ -1,4 +1,4 @@
-name: Build iOS IPA (Tauri - Unsigned)
+name: Build iOS IPA (Tauri Native)
 
 on:
   workflow_dispatch:
@@ -8,182 +8,111 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: 1. Checkout repository
+      - name: 1. Checkout
         uses: actions/checkout@v4
+        with:
+          repository: xDragos/SoundCloud-Desktop
+          ref: main
 
-      - name: 2. Select stable Xcode
+      - name: 2. Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: 3. Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: 4. Setup Node.js
+      - name: 3. Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
 
+      - name: 4. Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
       - name: 5. Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
 
-      - name: 6. Verify build environment
-        run: |
-          echo "=== Node ==="
-          node --version
-
-          echo "=== pnpm ==="
-          pnpm --version
-
-          echo "=== Rust ==="
-          rustc --version
-          cargo --version
-
-          echo "=== Xcode ==="
-          xcodebuild -version
-
-          echo "=== macOS ==="
-          sw_vers
-
-      - name: 7. Install dependencies
-        working-directory: desktop
-        run: |
-          pnpm install --frozen-lockfile
-
-      - name: 8. Tauri iOS Build (unsigned)
+      - name: 6. Install dependencies
         working-directory: ./desktop
-        run: |
-          pnpm exec tauri ios build \
-            --target aarch64 \
-            -- \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=-
+        run: pnpm install --frozen-lockfile
 
-      - name: 9. Initialize Tauri iOS
-        working-directory: desktop
+      - name: 7. Tauri iOS init
+        working-directory: ./desktop
         run: |
           pnpm exec tauri ios init
 
           echo "=== Generated Apple project ==="
-
           find src-tauri/gen/apple -maxdepth 3 \
-            \( \
-              -name "*.xcodeproj" \
-              -o -name "*.xcworkspace" \
-              -o -name "Podfile" \
-            \) \
+            \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) \
             -print
 
-      - name: 10. Verify iOS Xcode target
-        working-directory: desktop/src-tauri/gen/apple
+      - name: 8. Disable automatic code signing
+        working-directory: ./desktop
         run: |
-          echo "=== Xcode schemes ==="
-          xcodebuild -list \
-            -project soundcloud-desktop.xcodeproj
+          python3 - <<'PY'
+          from pathlib import Path
 
-          echo "=== iOS target ==="
+          project = Path(
+              "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          )
+
+          if not project.exists():
+              raise SystemExit(f"Project not found: {project}")
+
+          text = project.read_text()
+
+          text = text.replace(
+              "CODE_SIGN_STYLE = Automatic;",
+              "CODE_SIGN_STYLE = Manual;"
+          )
+
+          project.write_text(text)
+
+          print("Automatic code signing disabled.")
+          PY
+
+      - name: 9. Build frontend
+        working-directory: ./desktop
+        run: pnpm build
+
+      - name: 10. Build iOS unsigned
+        working-directory: ./desktop
+        run: |
           xcodebuild \
-            -project soundcloud-desktop.xcodeproj \
+            -project src-tauri/gen/apple/soundcloud-desktop.xcodeproj \
             -scheme soundcloud-desktop_iOS \
-            -showBuildSettings \
+            -sdk iphoneos \
+            -configuration release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            | grep -E "TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|SDKROOT" \
-            || true
-
-      - name: 11. Show generated project structure
-        working-directory: desktop
-        run: |
-          echo "=== src-tauri/gen/apple ==="
-
-          find src-tauri/gen/apple \
-            -maxdepth 4 \
-            -print | head -300
-
-      - name: 12. Build iOS unsigned
-        working-directory: desktop
-        run: |
-          pnpm exec tauri ios build \
-            --target aarch64 \
-            -- \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE_SPECIFIER=""
+            build
 
-      - name: 13. Locate IPA
+      - name: 11. Find iOS build
         run: |
-          echo "=== IPA files ==="
+          echo "=== iOS build output ==="
 
-          find desktop \
+          find desktop/src-tauri/gen/apple \
             -type f \
-            -name "*.ipa" \
-            -print 2>/dev/null || true
+            \( -name "*.app" -o -name "*.ipa" -o -name "*.xcarchive" \) \
+            -print || true
 
-      - name: 14. Locate XCARCHIVE
-        run: |
-          echo "=== XCARCHIVE directories ==="
-
-          find desktop \
-            -type d \
-            -name "*.xcarchive" \
-            -print 2>/dev/null || true
-
-      - name: 15. Locate APP
-        run: |
-          echo "=== APP directories ==="
-
-          find desktop \
+          find ~/Library/Developer/Xcode/DerivedData \
             -type d \
             -name "*.app" \
             -print 2>/dev/null || true
 
-      - name: 16. Collect build outputs
-        run: |
-          rm -rf ios-artifacts
-          mkdir -p ios-artifacts
-
-          echo "=== Copying IPA files ==="
-
-          find desktop \
-            -type f \
-            -name "*.ipa" \
-            -exec cp {} ios-artifacts/ \; \
-            2>/dev/null || true
-
-          echo "=== Copying XCARCHIVE files ==="
-
-          find desktop \
-            -type d \
-            -name "*.xcarchive" \
-            -exec cp -R {} ios-artifacts/ \; \
-            2>/dev/null || true
-
-          echo "=== Copying APP files ==="
-
-          find desktop \
-            -type d \
-            -name "*.app" \
-            -exec cp -R {} ios-artifacts/ \; \
-            2>/dev/null || true
-
-          echo "=== Final artifacts ==="
-
-          find ios-artifacts \
-            -maxdepth 3 \
-            -print
-
-      - name: 17. Upload iOS artifacts
+      - name: 12. Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SoundCloud-iOS-unsigned
-          path: ios-artifacts
+          path: |
+            desktop/src-tauri/gen/apple/**/*.app
+            desktop/src-tauri/gen/apple/**/*.ipa
+            desktop/src-tauri/gen/apple/**/*.xcarchive
           if-no-files-found: warn
