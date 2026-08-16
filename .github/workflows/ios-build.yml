@@ -52,7 +52,12 @@ jobs:
       - name: 8. Tauri iOS Build
         working-directory: ./desktop
         run: |
-          npx tauri ios build --target aarch64
+          npx tauri ios build --target aarch64 -- \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=""
+
 
       - name: 9. Locate IPA
         run: |
