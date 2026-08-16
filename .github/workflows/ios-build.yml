@@ -40,33 +40,43 @@ jobs:
         working-directory: ./desktop
         run: pnpm add -D @tauri-apps/cli
 
-      - name: 7. Tauri iOS Init
+            - name: 7. Tauri iOS Init + Pods
         working-directory: ./desktop
         run: |
-          echo "--- tauri ios init ---"
           npx tauri ios init
+          
+          echo "=== Structura generată ==="
+          find src-tauri/gen/apple -maxdepth 3 -type d
+          find src-tauri/gen/apple -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "project.yml"
 
-          echo "--- Continut src-tauri/gen/apple ---"
-          find src-tauri/gen/apple -maxdepth 3
+          # Instalăm CocoaPods dacă e nevoie
+          cd src-tauri/gen/apple
+          if [ -f Podfile ]; then
+            pod install
+          fi
 
-      - name: 8. Tauri iOS Build
+      - name: 8. Tauri iOS Build (unsigned)
         working-directory: ./desktop
         run: |
+          # Build fără semnare
           npx tauri ios build --target aarch64 -- \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM=""
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
 
-
-      - name: 9. Locate IPA
+      - name: 9. Locate IPA / xcarchive
         run: |
-          echo "--- Cautare fisiere .ipa ---"
-          find desktop/src-tauri/gen/apple -name "*.ipa" -o -name "*.xcarchive"
+          echo "=== Căutare IPA / xcarchive ==="
+          find desktop/src-tauri/gen/apple -type f \( -name "*.ipa" -o -name "*.xcarchive" \) 2>/dev/null || true
+          find desktop -name "*.ipa" 2>/dev/null || true
 
-      - name: 10. Upload IPA ca Artifact
+      - name: 10. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SoundCloud-iOS-IPA-Native
+          name: SoundCloud-iOS-IPA
           path: |
             desktop/src-tauri/gen/apple/**/*.ipa
+            desktop/src-tauri/gen/apple/**/*.xcarchive
+          if-no-files-found: warn
