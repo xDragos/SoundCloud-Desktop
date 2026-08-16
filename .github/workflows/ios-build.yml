@@ -1,4 +1,4 @@
-name: Build iOS IPA (Tauri Native)
+name: Build iOS IPA (Tauri - Unsigned)
 
 on:
   workflow_dispatch:
@@ -8,73 +8,97 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: 1. Checkout codul real
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: 'zxcloli666/SoundCloud-Desktop'
-          ref: 'main'
 
-      - name: 1b. Selecteaza Xcode stabil recent
+      - name: Select stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: 2. Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: 3. Install pnpm
-        run: npm install -g pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
-      - name: 4. Setup Rust
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
 
-      - name: 5. Install Dependencies
-        working-directory: ./desktop
-        run: pnpm install
+      - name: Install dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
 
-      - name: 6. Install Tauri CLI
-        working-directory: ./desktop
-        run: pnpm add -D @tauri-apps/cli
+      - name: Install Tauri CLI
+        working-directory: desktop
+        run: pnpm exec tauri --version
 
-      - name: 7. Tauri iOS Init + Pods
-        working-directory: ./desktop
+      - name: Initialize Tauri iOS
+        working-directory: desktop
         run: |
-          npx tauri ios init
-          
-          echo "=== Structura generată ==="
-          find src-tauri/gen/apple -maxdepth 3 -type d || true
-          find src-tauri/gen/apple -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "project.yml" || true
+          pnpm exec tauri ios init
 
-          cd src-tauri/gen/apple
+          echo "=== Generated Apple project ==="
+          find src-tauri/gen/apple -maxdepth 3 \
+            \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) \
+            -print
+
+      - name: Install CocoaPods dependencies
+        working-directory: desktop/src-tauri/gen/apple
+        run: |
           if [ -f Podfile ]; then
             pod install
+          else
+            echo "No Podfile found"
           fi
 
-      - name: 8. Tauri iOS Build (unsigned)
-        working-directory: ./desktop
+      - name: Build iOS unsigned
+        working-directory: desktop
         run: |
-          npx tauri ios build --target aarch64 -- \
+          pnpm exec tauri ios build \
+            --target aarch64 \
+            -- \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 9. Locate IPA / xcarchive
+      - name: Find generated files
         run: |
-          echo "=== Căutare IPA / xcarchive ==="
-          find desktop/src-tauri/gen/apple -type f \( -name "*.ipa" -o -name "*.xcarchive" \) 2>/dev/null || true
-          find desktop -name "*.ipa" 2>/dev/null || true
+          echo "=== IPA ==="
+          find desktop -type f -name "*.ipa" -print 2>/dev/null || true
 
-      - name: 10. Upload Artifact
+          echo "=== XCARCHIVE ==="
+          find desktop -type d -name "*.xcarchive" -print 2>/dev/null || true
+
+          echo "=== APP ==="
+          find desktop -type d -name "*.app" -print 2>/dev/null || true
+
+      - name: Collect build outputs
+        run: |
+          mkdir -p ios-artifacts
+
+          find desktop -type f -name "*.ipa" \
+            -exec cp {} ios-artifacts/ \; 2>/dev/null || true
+
+          find desktop -type d -name "*.xcarchive" \
+            -exec cp -R {} ios-artifacts/ \; 2>/dev/null || true
+
+          find desktop -type d -name "*.app" \
+            -exec cp -R {} ios-artifacts/ \; 2>/dev/null || true
+
+      - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SoundCloud-iOS-IPA
-          path: |
-            desktop/src-tauri/gen/apple/**/*.ipa
-            desktop/src-tauri/gen/apple/**/*.xcarchive
+          name: SoundCloud-iOS-unsigned
+          path: ios-artifacts
           if-no-files-found: warn
