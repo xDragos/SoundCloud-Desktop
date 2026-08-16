@@ -460,6 +460,51 @@ jobs:
           echo "=== Built Opus for iOS ==="
           ls -lh "$OPUS_PREFIX/lib"
 
+          # NOTE: we do NOT rely on $GITHUB_ENV here. The actual `cargo
+          # build` for audiopus_sys runs nested inside `tauri ios build` ->
+          # `xcodebuild archive` -> the "Build Rust Code" Run Script Phase,
+          # and that process chain does not reliably forward custom shell
+          # env vars that far down. Cargo's own [env] config table, however,
+          # is read by cargo itself wherever it runs from, and it injects
+          # those vars straight into every build script's process -
+          # regardless of what environment invoked cargo. So we write it
+          # there instead, which is the layer we can actually guarantee.
+          CARGO_CONFIG="$CARGO_HOME/config.toml"
+          mkdir -p "$CARGO_HOME"
+
+          if [ -f "$CARGO_CONFIG" ] && grep -q '^\[env\]' "$CARGO_CONFIG"; then
+          python3 - "$CARGO_CONFIG" "$OPUS_PREFIX" <<'PY'
+          import sys
+
+          path, prefix = sys.argv[1], sys.argv[2]
+          lines = open(path).read().splitlines()
+          out = []
+          inserted = False
+
+          for line in lines:
+              out.append(line)
+              if not inserted and line.strip() == "[env]":
+                  out.append('OPUS_NO_PKG = "1"')
+                  out.append('OPUS_STATIC = "1"')
+                  out.append(f'OPUS_LIB_DIR = "{prefix}"')
+                  inserted = True
+
+          open(path, "w").write("\n".join(out) + "\n")
+          PY
+          else
+          cat >> "$CARGO_CONFIG" <<EOF
+
+          [env]
+          OPUS_NO_PKG = "1"
+          OPUS_STATIC = "1"
+          OPUS_LIB_DIR = "$OPUS_PREFIX"
+          EOF
+          fi
+
+          echo "=== $CARGO_CONFIG ==="
+          cat "$CARGO_CONFIG"
+
+          # Keep these too, in case any step does invoke cargo directly.
           echo "OPUS_NO_PKG=1" >> "$GITHUB_ENV"
           echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
           echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
