@@ -80,18 +80,16 @@ jobs:
 
           echo "=== Starting signed iOS build ==="
 
-          pnpm exec tauri ios build \
-            --target aarch64 \
-            --export-method debugging
+          echo "=== Signing identities ==="
+          security find-identity -v -p codesigning
 
-      - name: 12. Build signed iOS IPA
-        working-directory: ./desktop
-        env:
-          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
-        run: |
-          set -e
+          echo "=== Apple Development identities ==="
+          security find-identity -v -p codesigning | grep "Apple Development:" || {
+            echo "ERROR: Apple Development certificate was not imported correctly."
+            exit 1
+          }
 
-          echo "=== Starting signed iOS build ==="
+          echo "=== Building IPA ==="
 
           pnpm exec tauri ios build \
             --target aarch64 \
