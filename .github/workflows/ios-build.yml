@@ -57,6 +57,10 @@ jobs:
       #
       # Instead we install the existing P12 + mobileprovision and call
       # xcodebuild directly with completely manual signing.
+      #
+      # FIX: Before calling xcodebuild we must create the missing
+      # {identifier}-server-addr file that tauri ios xcode-script expects,
+      # otherwise the Build Rust Code phase panics.
 
       - name: 9. Install Apple signing certificate
         env:
@@ -313,6 +317,27 @@ jobs:
             -c "Print :Entitlements:application-identifier" \
             "$RUNNER_TEMP/verify-profile.plist"
 
+      # FIX: Create the missing server-addr file that tauri ios xcode-script expects.
+      # Without this the Build Rust Code phase panics with:
+      #   failed to read missing addr file .../com.soundcloud.desktop-server-addr
+      - name: 12b. Create Tauri CLI options server-addr (required for xcode-script)
+        working-directory: ./desktop
+        run: |
+          set -e
+          # Tauri uses the original identifier from tauri.conf.json for the filename.
+          # Even after patching the pbxproj the CLI still looks for the old name.
+          IDENTIFIER="com.soundcloud.desktop"
+          ADDR_FILE="${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr"
+          # Write a dummy address. The RPC server is not running, but the mere
+          # existence of the file prevents the immediate panic. The xcode-script
+          # will still fail later if it tries to connect, so we also set a
+          # fallback environment variable used by older/newer CLI paths.
+          echo "127.0.0.1:9" > "$ADDR_FILE"
+          echo "Created $ADDR_FILE"
+          ls -la "$ADDR_FILE"
+          # Also export for any code path that checks the env var
+          echo "TAURI_OPTIONS_SERVER_ADDR=127.0.0.1:9" >> "$GITHUB_ENV"
+
       - name: 13. Archive with xcodebuild (NO Apple account)
         working-directory: ./desktop
         env:
@@ -359,27 +384,25 @@ jobs:
           EXPORT_DIR="$RUNNER_TEMP/ipa-export"
           mkdir -p "$EXPORT_DIR"
 
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>ad-hoc</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>$PROFILE_TEAM</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$PROFILE_BUNDLE_ID</key>
-              <string>$PROFILE_UUID</string>
-            </dict>
-            <key>compileBitcode</key>
-            <false/>
-          </dict>
-          </plist>
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <
+          
+          
+          
+            method
+            ad-hoc
+            signingStyle
+            manual
+            teamID
+            $PROFILE_TEAM
+            provisioningProfiles
+            
+              $PROFILE_BUNDLE_ID
+              $PROFILE_UUID
+            
+            compileBitcode
+            
+          
+          
           EOF
 
           echo "=== Exporting IPA ==="
