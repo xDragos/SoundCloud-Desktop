@@ -29,6 +29,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
+      - name: 5b. Install autotools for Opus (audiopus_sys) build
+        run: |
+          set -e
+          brew install autoconf automake libtool
       - name: 6. Install dependencies
         working-directory: ./desktop
         run: |
