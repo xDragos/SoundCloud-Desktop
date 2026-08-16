@@ -40,16 +40,15 @@ jobs:
         working-directory: ./desktop
         run: pnpm add -D @tauri-apps/cli
 
-            - name: 7. Tauri iOS Init + Pods
+      - name: 7. Tauri iOS Init + Pods
         working-directory: ./desktop
         run: |
           npx tauri ios init
           
           echo "=== Structura generată ==="
-          find src-tauri/gen/apple -maxdepth 3 -type d
-          find src-tauri/gen/apple -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "project.yml"
+          find src-tauri/gen/apple -maxdepth 3 -type d || true
+          find src-tauri/gen/apple -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "project.yml" || true
 
-          # Instalăm CocoaPods dacă e nevoie
           cd src-tauri/gen/apple
           if [ -f Podfile ]; then
             pod install
@@ -58,7 +57,6 @@ jobs:
       - name: 8. Tauri iOS Build (unsigned)
         working-directory: ./desktop
         run: |
-          # Build fără semnare
           npx tauri ios build --target aarch64 -- \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
