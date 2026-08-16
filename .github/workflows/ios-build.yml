@@ -66,33 +66,147 @@ jobs:
         run: |
           pnpm build
 
-      - name: 10. Build signed iOS IPA
-        working-directory: ./desktop
+      - name: 10. Install Apple signing certificate
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
-          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
+          set -e
+
+          echo "=== Installing Apple signing certificate ==="
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+
+          security create-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains \
+            -d user \
+            -s "$KEYCHAIN_PATH"
+
+          echo "$IOS_CERTIFICATE" | base64 --decode \
+            > "$RUNNER_TEMP/signing_certificate.p12"
+
+          echo "=== Testing PKCS12 password ==="
+
+          openssl pkcs12 \
+            -in "$RUNNER_TEMP/signing_certificate.p12" \
+            -noout \
+            -passin "pass:$IOS_CERTIFICATE_PASSWORD"
+
+          echo "=== Importing certificate ==="
+
+          security import \
+            "$RUNNER_TEMP/signing_certificate.p12" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            "$KEYCHAIN_PATH"
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          echo "=== Certificate installed successfully ==="
+
+      - name: 11. Install provisioning profile
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          set -e
+
+          echo "=== Installing provisioning profile ==="
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          mkdir -p "$PROFILE_DIR"
+
+          echo "$IOS_MOBILE_PROVISION" | base64 --decode \
+            > "$RUNNER_TEMP/profile.mobileprovision"
+
+          PROFILE_UUID=$(
+            security cms -D \
+              -i "$RUNNER_TEMP/profile.mobileprovision" |
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              /dev/stdin
+          )
+
+          PROFILE_NAME=$(
+            security cms -D \
+              -i "$RUNNER_TEMP/profile.mobileprovision" |
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              /dev/stdin
+          )
+
+          TEAM_ID=$(
+            security cms -D \
+              -i "$RUNNER_TEMP/profile.mobileprovision" |
+            /usr/libexec/PlistBuddy \
+              -c "Print :TeamIdentifier:0" \
+              /dev/stdin
+          )
+
+          echo "Profile name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Team ID: $TEAM_ID"
+
+          cp \
+            "$RUNNER_TEMP/profile.mobileprovision" \
+            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
+          echo "=== Provisioning profile installed successfully ==="
+
+      - name: 12. Build signed iOS IPA
+        working-directory: ./desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -e
+
           echo "=== Starting signed iOS build ==="
+          echo "Apple Development Team: $APPLE_DEVELOPMENT_TEAM"
 
           pnpm exec tauri ios build \
             --target aarch64 \
             --export-method debugging
 
-      - name: 11. Find build outputs
+      - name: 13. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
-          find desktop -type f -name "*.ipa" -print 2>/dev/null || true
+          find desktop \
+            -type f \
+            -name "*.ipa" \
+            -print 2>/dev/null || true
 
           echo "=== XCARCHIVE ==="
-          find desktop -type d -name "*.xcarchive" -print 2>/dev/null || true
+          find desktop \
+            -type d \
+            -name "*.xcarchive" \
+            -print 2>/dev/null || true
 
           echo "=== APP ==="
-          find desktop -type d -name "*.app" -print 2>/dev/null || true
+          find desktop \
+            -type d \
+            -name "*.app" \
+            -print 2>/dev/null || true
 
-      - name: 12. Upload artifacts
+      - name: 14. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
