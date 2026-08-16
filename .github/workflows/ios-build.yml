@@ -66,17 +66,19 @@ jobs:
         run: |
           pnpm build
 
-      - name: 10. Build iOS unsigned
+      - name: 10. Build signed iOS IPA
         working-directory: ./desktop
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
+          echo "=== Starting signed iOS build ==="
+
           pnpm exec tauri ios build \
             --target aarch64 \
-            -- \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE_SPECIFIER=""
+            --export-method debugging
 
       - name: 11. Find build outputs
         if: always()
