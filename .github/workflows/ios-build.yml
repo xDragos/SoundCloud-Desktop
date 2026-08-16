@@ -44,6 +44,14 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
+      - name: 7b. Instaleaza CocoaPods si genereaza workspace
+        working-directory: ./desktop/ios/App
+        run: |
+          sudo gem install cocoapods
+          pod install --repo-update
+          echo "--- Continut folder dupa pod install ---"
+          ls -la
+
       - name: 8. Compilare IPA nesemnat cu Xcode
         working-directory: ./desktop/ios/App
         run: |
@@ -56,7 +64,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             archive -archivePath $PWD/build/App.xcarchive
-            
+
           mkdir -p Payload
           cp -r build/App.xcarchive/Products/Applications/App.app Payload/
           zip -qr SoundCloud-iOS.ipa Payload
