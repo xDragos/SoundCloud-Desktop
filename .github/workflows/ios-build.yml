@@ -327,34 +327,63 @@ jobs:
       - name: 12b. Verify certificate matches provisioning profile
         run: |
           set -e
+
           python3 - "$RUNNER_TEMP/verify-profile.plist" "$SIGNING_IDENTITY_HASH" <<'PY'
           import sys
           import plistlib
           import hashlib
+
           profile_path = sys.argv[1]
           expected_hash = sys.argv[2].strip().upper()
+
           with open(profile_path, "rb") as f:
-          profile = plistlib.load(f)
+              profile = plistlib.load(f)
+
           certs = profile.get("DeveloperCertificates", [])
+
           hashes = [
-          hashlib.sha1(bytes(c)).hexdigest().upper()
-          for c in certs
+              hashlib.sha1(bytes(c)).hexdigest().upper()
+              for c in certs
           ]
-          print(f"Certificates embedded in provisioning profile: {len(hashes)}")
+
+          print(
+              f"Certificates embedded in provisioning profile: {len(hashes)}"
+          )
+
           for h in hashes:
-          print(f" - {h}")
-          print(f"Imported signing identity hash: {expected_hash}")
+              print(f" - {h}")
+
+          print(
+              f"Imported signing identity hash: {expected_hash}"
+          )
+
           if expected_hash not in hashes:
-          print("")
-          print("ERROR: The imported IOS_CERTIFICATE is NOT among the")
-          print("certificates embedded in this provisioning profile.")
-          print("Regenerate the provisioning profile in the Apple")
-          print("Developer portal using the CURRENT distribution")
-          print("certificate, download it, base64-encode it, and update")
-          print("the IOS_MOBILE_PROVISION secret.")
-          sys.exit(1)
-          print("OK: signing identity matches the provisioning profile.")
+              print("")
+              print(
+                  "ERROR: The imported IOS_CERTIFICATE is NOT among the"
+              )
+              print(
+                  "certificates embedded in this provisioning profile."
+              )
+              print(
+                  "Regenerate the provisioning profile in the Apple"
+              )
+              print(
+                  "Developer portal using the CURRENT distribution"
+              )
+              print(
+                  "certificate, download it, base64-encode it, and update"
+              )
+              print(
+                  "the IOS_MOBILE_PROVISION secret."
+              )
+              sys.exit(1)
+
+          print(
+              "OK: signing identity matches the provisioning profile."
+          )
           PY
+
       - name: 13. Ensure Tauri CLI 2.11
         working-directory: ./desktop
         run: |
