@@ -56,10 +56,10 @@ jobs:
           echo "--- Continut desktop/ios/App dupa sync ---"
           ls -la ios/App/
 
-      - name: 8. Compilare IPA nesemnat cu Xcode
+            - name: 8. Compilare IPA nesemnat cu Xcode
         working-directory: ./desktop/ios/App
         run: |
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild -project App.xcodeproj \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
