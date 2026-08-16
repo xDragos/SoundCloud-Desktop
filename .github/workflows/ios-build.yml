@@ -8,59 +8,92 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout repository
+      - name: 1. Checkout repository
         uses: actions/checkout@v4
 
-      - name: Select stable Xcode
+      - name: 2. Select stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: Setup Node.js
+      - name: 3. Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 4. Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Rust
+      - name: 5. Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
 
-      - name: Install dependencies
-        working-directory: desktop
-        run: pnpm install --frozen-lockfile
+      - name: 6. Verify build environment
+        run: |
+          echo "=== Node ==="
+          node --version
 
-      - name: Install Tauri CLI
-        working-directory: desktop
-        run: pnpm exec tauri --version
+          echo "=== pnpm ==="
+          pnpm --version
 
-      - name: Initialize Tauri iOS
+          echo "=== Rust ==="
+          rustc --version
+          cargo --version
+
+          echo "=== Xcode ==="
+          xcodebuild -version
+
+          echo "=== macOS ==="
+          sw_vers
+
+      - name: 7. Install dependencies
+        working-directory: desktop
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: 8. Check Tauri CLI
+        working-directory: desktop
+        run: |
+          pnpm exec tauri --version
+
+      - name: 9. Initialize Tauri iOS
         working-directory: desktop
         run: |
           pnpm exec tauri ios init
 
           echo "=== Generated Apple project ==="
+
           find src-tauri/gen/apple -maxdepth 3 \
-            \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) \
+            \( \
+              -name "*.xcodeproj" \
+              -o -name "*.xcworkspace" \
+              -o -name "Podfile" \
+            \) \
             -print
 
-      - name: Install CocoaPods dependencies
+      - name: 10. Install CocoaPods dependencies
         working-directory: desktop/src-tauri/gen/apple
         run: |
           if [ -f Podfile ]; then
+            echo "=== Installing CocoaPods dependencies ==="
             pod install
           else
-            echo "No Podfile found"
+            echo "No Podfile found."
           fi
 
-      - name: Build iOS unsigned
+      - name: 11. Show generated project structure
+        working-directory: desktop
+        run: |
+          echo "=== src-tauri/gen/apple ==="
+
+          find src-tauri/gen/apple -maxdepth 4 -print | head -300
+
+      - name: 12. Build iOS unsigned
         working-directory: desktop
         run: |
           pnpm exec tauri ios build \
@@ -72,31 +105,67 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: Find generated files
+      - name: 13. Locate IPA
         run: |
-          echo "=== IPA ==="
-          find desktop -type f -name "*.ipa" -print 2>/dev/null || true
+          echo "=== IPA files ==="
 
-          echo "=== XCARCHIVE ==="
-          find desktop -type d -name "*.xcarchive" -print 2>/dev/null || true
+          find desktop \
+            -type f \
+            -name "*.ipa" \
+            -print 2>/dev/null || true
 
-          echo "=== APP ==="
-          find desktop -type d -name "*.app" -print 2>/dev/null || true
-
-      - name: Collect build outputs
+      - name: 14. Locate XCARCHIVE
         run: |
+          echo "=== XCARCHIVE directories ==="
+
+          find desktop \
+            -type d \
+            -name "*.xcarchive" \
+            -print 2>/dev/null || true
+
+      - name: 15. Locate APP
+        run: |
+          echo "=== APP directories ==="
+
+          find desktop \
+            -type d \
+            -name "*.app" \
+            -print 2>/dev/null || true
+
+      - name: 16. Collect build outputs
+        run: |
+          rm -rf ios-artifacts
           mkdir -p ios-artifacts
 
-          find desktop -type f -name "*.ipa" \
-            -exec cp {} ios-artifacts/ \; 2>/dev/null || true
+          echo "=== Copying IPA files ==="
 
-          find desktop -type d -name "*.xcarchive" \
-            -exec cp -R {} ios-artifacts/ \; 2>/dev/null || true
+          find desktop \
+            -type f \
+            -name "*.ipa" \
+            -exec cp {} ios-artifacts/ \; \
+            2>/dev/null || true
 
-          find desktop -type d -name "*.app" \
-            -exec cp -R {} ios-artifacts/ \; 2>/dev/null || true
+          echo "=== Copying XCARCHIVE files ==="
 
-      - name: Upload iOS artifacts
+          find desktop \
+            -type d \
+            -name "*.xcarchive" \
+            -exec cp -R {} ios-artifacts/ \; \
+            2>/dev/null || true
+
+          echo "=== Copying APP files ==="
+
+          find desktop \
+            -type d \
+            -name "*.app" \
+            -exec cp -R {} ios-artifacts/ \; \
+            2>/dev/null || true
+
+          echo "=== Final artifacts ==="
+
+          find ios-artifacts -maxdepth 3 -print
+
+      - name: 17. Upload iOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SoundCloud-iOS-unsigned
