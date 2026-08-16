@@ -94,7 +94,9 @@ jobs:
             -d user \
             -s "$KEYCHAIN_PATH"
 
-          echo "$IOS_CERTIFICATE" | tr -d '\r\n ' | base64 --decode \
+          echo "$IOS_CERTIFICATE" |
+            tr -d '\r\n ' |
+            base64 --decode \
             > "$RUNNER_TEMP/signing_certificate.p12"
 
           echo "=== Checking PKCS12 ==="
@@ -118,9 +120,10 @@ jobs:
           security find-identity \
             -v \
             -p codesigning \
-            "$KEYCHAIN_PATH"
+            "$KEYCHAIN_PATH" || true
 
           echo "=== Certificate import completed ==="
+
       - name: 11. Install provisioning profile
         env:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
@@ -185,29 +188,22 @@ jobs:
             "$RUNNER_TEMP/profile.mobileprovision" \
             "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
 
-          echo "=== Provisioning profile installed successfully ==="      - name: 12. Verify Apple signing identity
-        run: |
-          echo "=== Available signing identities ==="
+          echo "=== Provisioning profile installed successfully ==="
 
-          security find-identity \
-            -v \
-            -p codesigning
-
-      - name: 13. Build signed iOS IPA
+      - name: 12. Build signed iOS IPA
         working-directory: ./desktop
         env:
-          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
           set -e
 
           echo "=== Starting signed iOS build ==="
-          echo "Apple Development Team: $APPLE_DEVELOPMENT_TEAM"
 
           pnpm exec tauri ios build \
             --target aarch64 \
             --export-method debugging
 
-      - name: 14. Find build outputs
+      - name: 13. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
@@ -231,7 +227,7 @@ jobs:
             -name "*.app" \
             -print 2>/dev/null || true
 
-      - name: 15. Upload artifacts
+      - name: 14. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
