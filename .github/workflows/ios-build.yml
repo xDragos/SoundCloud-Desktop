@@ -394,6 +394,75 @@ jobs:
           set -e
           pnpm add -D @tauri-apps/cli@2.11.0
           pnpm exec tauri --version
+      - name: 13b. Pre-build libopus for iOS (audiopus_sys can't cross-compile it)
+        working-directory: ./desktop
+        run: |
+          set -e
+
+          # audiopus_sys (the pinned version) bundles Opus and builds it via a
+          # plain `./configure && make`. That configure script isn't told
+          # about cross-compilation (`--host`), so on the runner it tries to
+          # execute an arm64-iOS test binary on the macOS host and fails with
+          # "cannot run C compiled programs".
+          #
+          # Fix: build Opus ourselves, correctly, for aarch64-apple-ios, and
+          # point audiopus_sys at the result. Its build.rs honors
+          # OPUS_NO_PKG / OPUS_STATIC / OPUS_LIB_DIR and will skip its own
+          # (broken) build entirely when these are set.
+
+          echo "=== Fetching crate sources (so the bundled opus/ dir exists) ==="
+          cargo fetch \
+          --manifest-path src-tauri/Cargo.toml \
+          --target aarch64-apple-ios
+
+          OPUS_SRC="$(
+          find "$CARGO_HOME/registry/src" \
+          -mindepth 2 \
+          -maxdepth 2 \
+          -type d \
+          -name "audiopus_sys-*" \
+          -print \
+          -quit
+          )/opus"
+
+          if [ ! -d "$OPUS_SRC" ]; then
+          echo "ERROR: Could not find bundled Opus source under \$CARGO_HOME/registry/src/*/audiopus_sys-*/opus"
+          exit 1
+          fi
+
+          echo "Using Opus source: $OPUS_SRC"
+
+          IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          IOS_CC="$(xcrun --sdk iphoneos --find clang)"
+          IOS_AR="$(xcrun --sdk iphoneos --find ar)"
+          IOS_RANLIB="$(xcrun --sdk iphoneos --find ranlib)"
+          OPUS_PREFIX="$RUNNER_TEMP/opus-ios"
+          IOS_FLAGS="-arch arm64 -isysroot $IOS_SDK -mios-version-min=13.0"
+
+          pushd "$OPUS_SRC"
+          ./autogen.sh
+          ./configure \
+          --host=aarch64-apple-darwin \
+          --disable-shared \
+          --enable-static \
+          --disable-extra-programs \
+          --disable-doc \
+          --prefix="$OPUS_PREFIX" \
+          CC="$IOS_CC" \
+          AR="$IOS_AR" \
+          RANLIB="$IOS_RANLIB" \
+          CFLAGS="$IOS_FLAGS -O2" \
+          LDFLAGS="$IOS_FLAGS"
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          popd
+
+          echo "=== Built Opus for iOS ==="
+          ls -lh "$OPUS_PREFIX/lib"
+
+          echo "OPUS_NO_PKG=1" >> "$GITHUB_ENV"
+          echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
       - name: 14. Build iOS archive with Tauri without signing
         working-directory: ./desktop
         env:
