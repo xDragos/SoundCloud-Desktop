@@ -82,12 +82,12 @@ jobs:
             -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
-          security set-keychain-settings \
-            -lut 21600 \
-            "$KEYCHAIN_PATH"
-
           security unlock-keychain \
             -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
             "$KEYCHAIN_PATH"
 
           security list-keychains \
@@ -97,20 +97,14 @@ jobs:
           echo "$IOS_CERTIFICATE" | tr -d '\r\n ' | base64 --decode \
             > "$RUNNER_TEMP/signing_certificate.p12"
 
-          echo "=== Checking decoded certificate ==="
-
-          file "$RUNNER_TEMP/signing_certificate.p12"
-
-          ls -lh "$RUNNER_TEMP/signing_certificate.p12"
-
-          echo "=== Checking PKCS12 password ==="
+          echo "=== Checking PKCS12 ==="
 
           openssl pkcs12 \
             -in "$RUNNER_TEMP/signing_certificate.p12" \
             -noout \
             -passin "pass:$IOS_CERTIFICATE_PASSWORD"
 
-          echo "=== Importing certificate ==="
+          echo "=== Importing certificate and private key ==="
 
           security import \
             "$RUNNER_TEMP/signing_certificate.p12" \
@@ -119,14 +113,14 @@ jobs:
             -f pkcs12 \
             "$KEYCHAIN_PATH"
 
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "$KEYCHAIN_PASSWORD" \
+          echo "=== Checking identities ==="
+
+          security find-identity \
+            -v \
+            -p codesigning \
             "$KEYCHAIN_PATH"
 
-          echo "=== Certificate installed successfully ==="
-
+          echo "=== Certificate import completed ==="
       - name: 11. Install provisioning profile
         env:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
