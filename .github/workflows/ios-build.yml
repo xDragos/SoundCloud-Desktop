@@ -56,10 +56,15 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
 
-      - name: 8. Check Tauri CLI
-        working-directory: desktop
+      - name: 8. Tauri iOS Build (unsigned)
+        working-directory: ./desktop
         run: |
-          pnpm exec tauri --version
+          pnpm exec tauri ios build \
+            --target aarch64 \
+            -- \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=-
 
       - name: 9. Initialize Tauri iOS
         working-directory: desktop
