@@ -66,129 +66,23 @@ jobs:
         run: |
           pnpm build
 
-      - name: 10. Install Apple signing certificate
+      - name: 10. Build signed iOS IPA
+        working-directory: ./desktop
         env:
+          # Tauri reads these variables during `tauri ios build` and configures
+          # the generated Xcode project for manual iOS signing.
+          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-        run: |
-          set -e
-
-          echo "=== Installing Apple signing certificate ==="
-
-          KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
-
-          security create-keychain \
-            -p "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-
-          security unlock-keychain \
-            -p "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-
-          security set-keychain-settings \
-            -lut 21600 \
-            "$KEYCHAIN_PATH"
-
-          security list-keychains \
-            -d user \
-            -s "$KEYCHAIN_PATH"
-
-          echo "$IOS_CERTIFICATE" |
-            tr -d '\r\n ' |
-            base64 --decode \
-            > "$RUNNER_TEMP/signing_certificate.p12"
-
-          echo "=== Checking PKCS12 ==="
-
-          openssl pkcs12 \
-            -in "$RUNNER_TEMP/signing_certificate.p12" \
-            -noout \
-            -passin "pass:$IOS_CERTIFICATE_PASSWORD"
-
-          echo "=== Importing certificate and private key ==="
-
-          security import \
-            "$RUNNER_TEMP/signing_certificate.p12" \
-            -P "$IOS_CERTIFICATE_PASSWORD" \
-            -A \
-            -f pkcs12 \
-            "$KEYCHAIN_PATH"
-
-          echo "=== Checking identities ==="
-
-          security find-identity \
-            -v \
-            -p codesigning \
-            "$KEYCHAIN_PATH" || true
-
-          echo "=== Certificate import completed ==="
-
-      - name: 11. Install provisioning profile
-        env:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
         run: |
           set -e
 
-          echo "=== Installing provisioning profile ==="
+          echo "=== Starting signed iOS build ==="
 
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-
-          mkdir -p "$PROFILE_DIR"
-
-          echo "=== Decoding provisioning profile ==="
-
-          printf '%s' "$IOS_MOBILE_PROVISION" |
-            tr -d '\r\n ' |
-            base64 --decode \
-            > "$RUNNER_TEMP/profile.mobileprovision"
-
-          echo "=== Checking provisioning profile file ==="
-
-          ls -lh "$RUNNER_TEMP/profile.mobileprovision"
-
-          FILE_SIZE=$(wc -c < "$RUNNER_TEMP/profile.mobileprovision")
-
-          if [ "$FILE_SIZE" -eq 0 ]; then
-            echo "ERROR: Provisioning profile is empty."
-            exit 1
-          fi
-
-          echo "Provisioning profile size: $FILE_SIZE bytes"
-
-          echo "=== Reading provisioning profile ==="
-
-          security cms -D \
-            -i "$RUNNER_TEMP/profile.mobileprovision" \
-            > "$RUNNER_TEMP/profile.plist"
-
-          PROFILE_UUID=$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :UUID" \
-              "$RUNNER_TEMP/profile.plist"
-          )
-
-          PROFILE_NAME=$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :Name" \
-              "$RUNNER_TEMP/profile.plist"
-          )
-
-          PROFILE_TEAM=$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :TeamIdentifier:0" \
-              "$RUNNER_TEMP/profile.plist"
-          )
-
-          echo "Profile name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Team ID: $PROFILE_TEAM"
-
-          cp \
-            "$RUNNER_TEMP/profile.mobileprovision" \
-            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
-
-          echo "=== Provisioning profile installed successfully ==="
+          pnpm exec tauri ios build \
+            --target aarch64 \
+            --export-method debugging
 
       - name: 12. Build signed iOS IPA
         working-directory: ./desktop
@@ -203,7 +97,7 @@ jobs:
             --target aarch64 \
             --export-method debugging
 
-      - name: 13. Find build outputs
+      - name: 11. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
@@ -227,7 +121,7 @@ jobs:
             -name "*.app" \
             -print 2>/dev/null || true
 
-      - name: 14. Upload artifacts
+      - name: 12. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
