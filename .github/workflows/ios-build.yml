@@ -161,100 +161,150 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
-          echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
-      - name: 11. Patch generated Xcode project for manual signing
+          echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$      - name: 11. Patch generated Xcode project for manual signing
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
           APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
+
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+
           echo "=== Before patch: bundle identifiers ==="
           grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$PROJECT" || true
+
+          # Replace the old bundle identifier everywhere in the generated project.
           sed -i '' \
-          "s/com\.soundcloud\.desktop/$APP_BUNDLE_ID/g" \
-          "$PROJECT"
+            "s/com\.soundcloud\.desktop/$APP_BUNDLE_ID/g" \
+            "$PROJECT"
+
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" "$PROFILE_UUID" "$SIGNING_IDENTITY" <<'PY'
           import sys
           from pathlib import Path
+
           project = Path(sys.argv[1])
           team = sys.argv[2]
           bundle_id = sys.argv[3]
           profile_uuid = sys.argv[4]
           signing_identity = sys.argv[5]
+
           text = project.read_text()
+
           replacements = {
-          "CODE_SIGN_STYLE = Automatic;":
-          "CODE_SIGN_STYLE = Manual;",
-          "DEVELOPMENT_TEAM = 29897MSSY7;":
-          f"DEVELOPMENT_TEAM = {team};",
-          "PRODUCT_BUNDLE_IDENTIFIER = com.soundcloud.desktop;":
-          f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
+              "CODE_SIGN_STYLE = Automatic;":
+                  "CODE_SIGN_STYLE = Manual;",
+              "DEVELOPMENT_TEAM = 29897MSSY7;":
+                  f"DEVELOPMENT_TEAM = {team};",
+              "PRODUCT_BUNDLE_IDENTIFIER = com.soundcloud.desktop;":
+                  f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
           }
+
           for old, new in replacements.items():
-          text = text.replace(old, new)
+              text = text.replace(old, new)
+
+          # Replace existing signing settings in every build configuration.
           lines = text.splitlines()
           out = []
+
           for line in lines:
-          stripped = line.strip()
-          if stripped.startswith("CODE_SIGN_STYLE = "):
-          out.append("CODE_SIGN_STYLE = Manual;")
-          continue
-          if stripped.startswith("DEVELOPMENT_TEAM = "):
-          out.append(f"DEVELOPMENT_TEAM = {team};")
-          continue
-          if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER = "):
-          out.append(f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};")
-          continue
-          if stripped.startswith("CODE_SIGN_IDENTITY = "):
-          out.append(f'CODE_SIGN_IDENTITY = "{signing_identity}";')
-          continue
-          if stripped.startswith("PROVISIONING_PROFILE_SPECIFIER = "):
-          out.append(f'PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";')
-          continue
-          out.append(line)
+              stripped = line.strip()
+
+              if stripped.startswith("CODE_SIGN_STYLE = "):
+                  out.append("CODE_SIGN_STYLE = Manual;")
+                  continue
+
+              if stripped.startswith("DEVELOPMENT_TEAM = "):
+                  out.append(f"DEVELOPMENT_TEAM = {team};")
+                  continue
+
+              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER = "):
+                  out.append(
+                      f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
+                  )
+                  continue
+
+              if stripped.startswith("CODE_SIGN_IDENTITY = "):
+                  out.append(
+                      f'CODE_SIGN_IDENTITY = "{signing_identity}";'
+                  )
+                  continue
+
+              if stripped.startswith("PROVISIONING_PROFILE_SPECIFIER = "):
+                  out.append(
+                      f'PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";'
+                  )
+                  continue
+
+              out.append(line)
+
           text = "\n".join(out) + "\n"
+
+          # Add missing signing settings to configurations that did not
+          # previously contain them.
           lines = text.splitlines()
           out = []
           i = 0
+
           while i < len(lines):
-          line = lines[i]
-          out.append(line)
-          if line.strip() == "CODE_SIGN_STYLE = Manual;":
-          indent = line[:len(line) - len(line.lstrip())]
-          has_identity = False
-          has_profile = False
-          j = i + 1
-          while j < len(lines) and lines[j].strip() != "};":
-          if lines[j].strip().startswith("CODE_SIGN_IDENTITY = "):
-          has_identity = True
-          if lines[j].strip().startswith("PROVISIONING_PROFILE_SPECIFIER = "):
-          has_profile = True
-          j += 1
-          if not has_identity:
-          out.append(
-          f'{indent}CODE_SIGN_IDENTITY = "{signing_identity}";'
-          )
-          if not has_profile:
-          out.append(
-          f'{indent}PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";'
-          )
-          i += 1
+              line = lines[i]
+              out.append(line)
+
+              if line.strip() == "CODE_SIGN_STYLE = Manual;":
+                  indent = line[:len(line) - len(line.lstrip())]
+
+                  has_identity = False
+                  has_profile = False
+
+                  j = i + 1
+
+                  while j < len(lines) and lines[j].strip() != "};":
+                      current = lines[j].strip()
+
+                      if current.startswith("CODE_SIGN_IDENTITY = "):
+                          has_identity = True
+
+                      if current.startswith(
+                          "PROVISIONING_PROFILE_SPECIFIER = "
+                      ):
+                          has_profile = True
+
+                      j += 1
+
+                  if not has_identity:
+                      out.append(
+                          f'{indent}CODE_SIGN_IDENTITY = "{signing_identity}";'
+                      )
+
+                  if not has_profile:
+                      out.append(
+                          f'{indent}PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";'
+                      )
+
+              i += 1
+
           project.write_text("\n".join(out) + "\n")
           PY
+
           echo "=== After patch: signing settings ==="
+
           grep -nE \
-          "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM" \
-          "$PROJECT" || true
+            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM" \
+            "$PROJECT" || true
+
           echo "=== Verifying bundle identifier ==="
+
           if grep -q "com.soundcloud.desktop" "$PROJECT"; then
-          echo "ERROR: Old bundle identifier still exists in Xcode project."
-          exit 1
+            echo "ERROR: Old bundle identifier still exists in Xcode project."
+            exit 1
           fi
-          if ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;" "$PROJECT"; then
-          echo "ERROR: Expected bundle identifier was not written."
-          exit 1
+
+          if ! grep -q \
+            "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;" \
+            "$PROJECT"
+          then
+            echo "ERROR: Expected bundle identifier was not written."
+            exit 1
           fi
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
