@@ -40,31 +40,21 @@ jobs:
         run: |
           pnpm add @capacitor/core @capacitor/ios
           pnpm add -D @capacitor/cli
-          npx cap init "SoundCloud" "com.dragos.soundcloud" --web-dir dist
-          npx cap add ios
-          npx cap sync ios
 
-            - name: 7. Integrare Capacitor pentru iOS
-        working-directory: ./desktop
-        run: |
-          pnpm add @capacitor/core @capacitor/ios
-          pnpm add -D @capacitor/cli
-          
           echo "--- cap init ---"
           npx cap init "SoundCloud" "com.dragos.soundcloud" --web-dir dist
-          
+
           echo "--- cap add ios ---"
           npx cap add ios
-          
+
           echo "--- Continut desktop/ios dupa add ---"
           find ios -maxdepth 4
-          
+
           echo "--- cap sync ios ---"
           npx cap sync ios
-          
+
           echo "--- Continut desktop/ios/App dupa sync ---"
           ls -la ios/App/
-
 
       - name: 8. Compilare IPA nesemnat cu Xcode
         working-directory: ./desktop/ios/App
