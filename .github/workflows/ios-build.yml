@@ -161,7 +161,9 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
-          echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$      - name: 11. Patch generated Xcode project for manual signing
+          echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
+
+      - name: 11. Patch generated Xcode project for manual signing
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
@@ -462,4 +464,4 @@ jobs:
           path: |
             artifacts/SoundCloud-iOS.ipa
             artifacts/SoundCloud-iOS.xcarchive
-            if-no-files-found: warn
+          if-no-files-found: warn
