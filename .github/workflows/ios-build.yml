@@ -1,4 +1,4 @@
-name: Build iOS IPA (Tauri Ad Hoc)
+name: Build iOS IPA (Tauri Native - Manual Signing)
 
 on:
   workflow_dispatch:
@@ -49,32 +49,58 @@ jobs:
         run: |
           pnpm build
 
-      - name: 9. Install signing certificate and provisioning profile
+      # IMPORTANT:
+      # We do NOT use `tauri ios build` for the final signing step.
+      # Tauri invokes xcodebuild with -allowProvisioningUpdates, which makes
+      # Xcode look for an Apple Developer account/profile and causes:
+      #   "No Accounts: Add a new account in Accounts settings."
+      #
+      # Instead we install the existing P12 + mobileprovision and call
+      # xcodebuild directly with completely manual signing.
+
+      - name: 9. Install Apple signing certificate
         env:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
         run: |
           set -e
 
-          echo "=== Creating temporary keychain ==="
-          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security create-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
 
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains \
+            -d user \
+            -s "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
+
+          printf '%s' "$IOS_CERTIFICATE" |
+            tr -d '\r\n ' |
+            base64 --decode > "$CERT_PATH"
+
+          echo "=== Checking P12 ==="
+          openssl pkcs12 \
+            -in "$CERT_PATH" \
+            -noout \
+            -passin "pass:$IOS_CERTIFICATE_PASSWORD"
 
           echo "=== Importing P12 ==="
-          CERT_PATH="$RUNNER_TEMP/signing.p12"
-          echo "$IOS_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-
           security import "$CERT_PATH" \
             -k "$KEYCHAIN_PATH" \
             -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A \
             -T /usr/bin/codesign \
             -T /usr/bin/security \
             -T /usr/bin/productbuild
@@ -86,127 +112,319 @@ jobs:
             "$KEYCHAIN_PATH"
 
           echo "=== Signing identities ==="
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$KEYCHAIN_PATH"
 
-          echo "=== Installing provisioning profile ==="
-          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
-          echo "$IOS_MOBILE_PROVISION" | base64 --decode > "$PROFILE_PATH"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" |
+            grep -E '"iPhone Distribution:|\"Apple Distribution:' |
+            head -1 |
+            sed -E 's/^.*\"(.*)\"$/\1/' || true)"
 
-          PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
-          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
-
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST")
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PROFILE_PLIST")
-          APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$PROFILE_PLIST")
-
-          echo "Profile name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Application identifier: $APP_ID"
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_PATH" \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-
-          echo "=== Checking profile bundle identifier ==="
-          if [[ "$APP_ID" != "29897MSSY7.app.star4684.aquila7560" ]]; then
-            echo "ERROR: Provisioning profile does not match expected App ID."
-            echo "Expected: 29897MSSY7.app.star4684.aquila7560"
-            echo "Found:    $APP_ID"
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No iPhone Distribution / Apple Distribution identity found."
             exit 1
           fi
 
-          echo "=== Signing setup complete ==="
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
-      - name: 10. Configure Xcode for Ad Hoc signing
+      - name: 10. Install provisioning profile
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          set -e
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+
+          printf '%s' "$IOS_MOBILE_PROVISION" |
+            tr -d '\r\n ' |
+            base64 --decode > "$PROFILE_PATH"
+
+          test -s "$PROFILE_PATH"
+
+          security cms -D \
+            -i "$PROFILE_PATH" \
+            > "$RUNNER_TEMP/profile.plist"
+
+          PROFILE_UUID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_TEAM=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :TeamIdentifier:0" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_APP_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:application-identifier" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_BUNDLE_ID="${PROFILE_APP_ID#*.}"
+
+          echo "Profile name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Team: $PROFILE_TEAM"
+          echo "Profile App ID: $PROFILE_APP_ID"
+          echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
+
+          cp "$PROFILE_PATH" \
+            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
+          echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
+
+      - name: 11. Patch generated Xcode project for manual signing
         working-directory: ./desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
+          APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
 
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
 
-          echo "=== Patching bundle identifier ==="
-          python3 - <<'PY'
+          echo "=== Before patch: bundle identifiers ==="
+          grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$PROJECT" || true
+
+          # The previous workflow only patched some generated settings.
+          # Xcode still saw com.soundcloud.desktop in the actual build target.
+          # Replace it everywhere in the generated pbxproj.
+          sed -i '' \
+            "s/com\\.soundcloud\\.desktop/$APP_BUNDLE_ID/g" \
+            "$PROJECT"
+
+          # Force manual signing and the exact installed profile/identity.
+          # This prevents Xcode from trying to contact an Apple account.
+          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" "$PROFILE_UUID" "$SIGNING_IDENTITY" <<'PY'
+          import sys
           from pathlib import Path
 
-          p = Path("src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj")
-          s = p.read_text()
+          project = Path(sys.argv[1])
+          team = sys.argv[2]
+          bundle_id = sys.argv[3]
+          profile_uuid = sys.argv[4]
+          signing_identity = sys.argv[5]
 
-          s = s.replace(
-              "PRODUCT_BUNDLE_IDENTIFIER = com.soundcloud.desktop;",
-              "PRODUCT_BUNDLE_IDENTIFIER = app.star4684.aquila7560;"
-          )
-
-          s = s.replace(
-              "PRODUCT_BUNDLE_IDENTIFIER = \"com.soundcloud.desktop\";",
-              "PRODUCT_BUNDLE_IDENTIFIER = \"app.star4684.aquila7560\";"
-          )
-
-          p.write_text(s)
-          PY
-
-          echo "=== Setting manual signing ==="
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj")
-          s = p.read_text()
+          text = project.read_text()
 
           replacements = {
-              "CODE_SIGN_STYLE = Automatic;": "CODE_SIGN_STYLE = Manual;",
-              "DEVELOPMENT_TEAM = 29897MSSY7;": "DEVELOPMENT_TEAM = 29897MSSY7;",
+              "CODE_SIGN_STYLE = Automatic;":
+                  "CODE_SIGN_STYLE = Manual;",
+              "DEVELOPMENT_TEAM = 29897MSSY7;":
+                  f"DEVELOPMENT_TEAM = {team};",
+              "PRODUCT_BUNDLE_IDENTIFIER = com.soundcloud.desktop;":
+                  f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
           }
 
           for old, new in replacements.items():
-              s = s.replace(old, new)
+              text = text.replace(old, new)
 
-          p.write_text(s)
+          # Add/replace manual signing settings in every build configuration.
+          lines = text.splitlines()
+          out = []
+
+          for line in lines:
+              stripped = line.strip()
+
+              if stripped.startswith("CODE_SIGN_STYLE = "):
+                  out.append("CODE_SIGN_STYLE = Manual;")
+                  continue
+
+              if stripped.startswith("DEVELOPMENT_TEAM = "):
+                  out.append(f"DEVELOPMENT_TEAM = {team};")
+                  continue
+
+              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER = "):
+                  out.append(f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};")
+                  continue
+
+              if stripped.startswith("CODE_SIGN_IDENTITY = "):
+                  out.append(f'CODE_SIGN_IDENTITY = "{signing_identity}";')
+                  continue
+
+              if stripped.startswith("PROVISIONING_PROFILE_SPECIFIER = "):
+                  out.append(f'PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";')
+                  continue
+
+              out.append(line)
+
+          text = "\n".join(out) + "\n"
+
+          # If the generated project did not contain these settings, inject them
+          # into build settings blocks.
+          text = text.replace(
+              "CODE_SIGN_STYLE = Manual;\n",
+              "CODE_SIGN_STYLE = Manual;\n"
+          )
+
+          project.write_text(text)
           PY
 
-          echo "=== Xcode signing settings ==="
+          echo "=== After patch: signing settings ==="
           grep -nE \
-            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER" \
+            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM" \
             "$PROJECT" || true
 
-      - name: 11. Build signed iOS IPA
+          echo "=== Verifying bundle identifier ==="
+          if grep -q "com.soundcloud.desktop" "$PROJECT"; then
+            echo "ERROR: Old bundle identifier still exists in Xcode project."
+            exit 1
+          fi
+
+          if ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;" "$PROJECT"; then
+            echo "ERROR: Expected bundle identifier was not written."
+            exit 1
+          fi
+
+      - name: 12. Verify Xcode signing inputs
+        working-directory: ./desktop
+        run: |
+          set -e
+
+          echo "=== Identity ==="
+          security find-identity -v -p codesigning
+
+          echo "=== Provisioning profile ==="
+          ls -lh "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          echo "=== Profile ==="
+          security cms -D \
+            -i "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
+            > "$RUNNER_TEMP/verify-profile.plist"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :Entitlements:application-identifier" \
+            "$RUNNER_TEMP/verify-profile.plist"
+
+      - name: 13. Archive with xcodebuild (NO Apple account)
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
           set -e
 
-          echo "=== Signing identities ==="
-          security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain-db"
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj"
+          WORKSPACE="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.xcworkspace"
+          SCHEME="soundcloud-desktop_iOS"
+          ARCHIVE="$RUNNER_TEMP/SoundCloud-iOS.xcarchive"
 
-          echo "=== Building Ad Hoc IPA ==="
+          echo "=== Cleaning ==="
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration release \
+            -sdk iphoneos \
+            clean
 
-          pnpm exec tauri ios build \
-            --target aarch64 \
-            --export-method release-testing
+          echo "=== Archiving ==="
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_DEVELOPMENT_TEAM" \
+            PRODUCT_BUNDLE_IDENTIFIER="$PROFILE_BUNDLE_ID" \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            archive
 
-      - name: 12. Find build outputs
+          test -d "$ARCHIVE"
+          echo "ARCHIVE_PATH=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: 14. Export IPA with installed profile
+        working-directory: ./desktop
+        run: |
+          set -e
+
+          EXPORT_DIR="$RUNNER_TEMP/ipa-export"
+          mkdir -p "$EXPORT_DIR"
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>$PROFILE_TEAM</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$PROFILE_BUNDLE_ID</key>
+              <string>$PROFILE_UUID</string>
+            </dict>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "=== Exporting IPA ==="
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+          IPA="$(find "$EXPORT_DIR" -maxdepth 1 -type f -name '*.ipa' | head -1)"
+
+          if [ -z "$IPA" ]; then
+            echo "ERROR: IPA was not produced."
+            find "$EXPORT_DIR" -maxdepth 3 -print || true
+            exit 1
+          fi
+
+          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
+          echo "=== IPA created ==="
+          ls -lh "$IPA"
+
+      - name: 15. Copy artifacts
         if: always()
         run: |
-          echo "=== IPA ==="
-          find desktop -type f -name "*.ipa" -print 2>/dev/null || true
+          set -e
 
-          echo "=== XCARCHIVE ==="
-          find desktop -type d -name "*.xcarchive" -print 2>/dev/null || true
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          echo "=== APP ==="
-          find desktop -type d -name "*.app" -print 2>/dev/null || true
+          if [ -n "${IPA_PATH:-}" ] && [ -f "$IPA_PATH" ]; then
+            cp "$IPA_PATH" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
+          fi
 
-      - name: 13. Upload artifacts
+          if [ -n "${ARCHIVE_PATH:-}" ] && [ -d "$ARCHIVE_PATH" ]; then
+            ditto "$ARCHIVE_PATH" \
+              "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.xcarchive"
+          fi
+
+          find "$GITHUB_WORKSPACE/artifacts" -maxdepth 2 -print || true
+
+      - name: 16. Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SoundCloud-iOS-AdHoc
+          name: SoundCloud-iOS-Build
           path: |
-            desktop/**/*.ipa
-            desktop/**/*.xcarchive
-            desktop/**/*.app
+            artifacts/*.ipa
+            artifacts/*.xcarchive
           if-no-files-found: warn
-
-      - name: 14. Cleanup keychain
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
