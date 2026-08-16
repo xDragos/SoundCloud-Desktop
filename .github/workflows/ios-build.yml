@@ -14,7 +14,7 @@ jobs:
           repository: xDragos/SoundCloud-Desktop
           ref: main
 
-      - name: 2. Setup Xcode
+      - name: 2. Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -26,10 +26,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: 4. Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.5
+      - name: 4. Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm --version
+          node --version
 
       - name: 5. Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,9 +40,15 @@ jobs:
 
       - name: 6. Install dependencies
         working-directory: ./desktop
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
 
-      - name: 7. Tauri iOS init
+      - name: 7. Install Tauri CLI
+        working-directory: ./desktop
+        run: |
+          pnpm exec tauri --version
+
+      - name: 8. Initialize Tauri iOS
         working-directory: ./desktop
         run: |
           pnpm exec tauri ios init
@@ -50,69 +58,48 @@ jobs:
             \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) \
             -print
 
-      - name: 8. Disable automatic code signing
+      - name: 9. Install CocoaPods
         working-directory: ./desktop
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          cd src-tauri/gen/apple
 
-          project = Path(
-              "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
-          )
-
-          if not project.exists():
-              raise SystemExit(f"Project not found: {project}")
-
-          text = project.read_text()
-
-          text = text.replace(
-              "CODE_SIGN_STYLE = Automatic;",
-              "CODE_SIGN_STYLE = Manual;"
-          )
-
-          project.write_text(text)
-
-          print("Automatic code signing disabled.")
-          PY
-
-      - name: 9. Build frontend
-        working-directory: ./desktop
-        run: pnpm build
+          if [ -f Podfile ]; then
+            pod install
+          else
+            echo "No Podfile found"
+          fi
 
       - name: 10. Build iOS unsigned
         working-directory: ./desktop
         run: |
-          xcodebuild \
-            -project src-tauri/gen/apple/soundcloud-desktop.xcodeproj \
-            -scheme soundcloud-desktop_iOS \
-            -sdk iphoneos \
-            -configuration release \
-            CODE_SIGNING_ALLOWED=NO \
+          pnpm exec tauri ios build \
+            --target aarch64 \
+            -- \
+            CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
-            build
+            PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 11. Find iOS build
+      - name: 11. Find build outputs
+        if: always()
         run: |
-          echo "=== iOS build output ==="
+          echo "=== IPA ==="
+          find desktop -type f -name "*.ipa" -print 2>/dev/null || true
 
-          find desktop/src-tauri/gen/apple \
-            -type f \
-            \( -name "*.app" -o -name "*.ipa" -o -name "*.xcarchive" \) \
-            -print || true
+          echo "=== XCARCHIVE ==="
+          find desktop -type d -name "*.xcarchive" -print 2>/dev/null || true
 
-          find ~/Library/Developer/Xcode/DerivedData \
-            -type d \
-            -name "*.app" \
-            -print 2>/dev/null || true
+          echo "=== APP ==="
+          find desktop -type d -name "*.app" -print 2>/dev/null || true
 
-      - name: 12. Upload build artifacts
+      - name: 12. Upload IPA / archive
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SoundCloud-iOS-unsigned
+          name: SoundCloud-iOS-Build
           path: |
-            desktop/src-tauri/gen/apple/**/*.app
-            desktop/src-tauri/gen/apple/**/*.ipa
-            desktop/src-tauri/gen/apple/**/*.xcarchive
+            desktop/**/*.ipa
+            desktop/**/*.xcarchive
+            desktop/**/*.app
           if-no-files-found: warn
