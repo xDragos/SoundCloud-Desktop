@@ -27,7 +27,7 @@ jobs:
       - name: 4. Install pnpm
         run: |
           npm install -g pnpm@10.34.5
-          echo "=== pnpm ==="
+          echo "pnpm:"
           which pnpm
           pnpm --version
 
@@ -61,24 +61,12 @@ jobs:
             \) \
             -print
 
-      - name: 9. Install CocoaPods
-        working-directory: ./desktop
-        run: |
-          cd src-tauri/gen/apple
-
-          if [ -f Podfile ]; then
-            echo "=== Installing CocoaPods dependencies ==="
-            pod install
-          else
-            echo "No Podfile found"
-          fi
-
-      - name: 10. Build frontend
+      - name: 9. Build frontend
         working-directory: ./desktop
         run: |
           pnpm build
 
-      - name: 11. Build iOS unsigned
+      - name: 10. Build iOS unsigned
         working-directory: ./desktop
         run: |
           pnpm exec tauri ios build \
@@ -90,7 +78,7 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 12. Find build outputs
+      - name: 11. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
@@ -102,7 +90,7 @@ jobs:
           echo "=== APP ==="
           find desktop -type d -name "*.app" -print 2>/dev/null || true
 
-      - name: 13. Upload artifacts
+      - name: 12. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
