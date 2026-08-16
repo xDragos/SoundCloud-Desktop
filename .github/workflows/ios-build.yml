@@ -76,22 +76,31 @@ jobs:
             \) \
             -print
 
-      - name: 10. Install CocoaPods dependencies
+      - name: 10. Verify iOS Xcode target
         working-directory: desktop/src-tauri/gen/apple
         run: |
-          if [ -f Podfile ]; then
-            echo "=== Installing CocoaPods dependencies ==="
-            pod install
-          else
-            echo "No Podfile found."
-          fi
+          echo "=== Xcode schemes ==="
+          xcodebuild -list \
+            -project soundcloud-desktop.xcodeproj
+
+          echo "=== iOS target ==="
+          xcodebuild \
+            -project soundcloud-desktop.xcodeproj \
+            -scheme soundcloud-desktop_iOS \
+            -showBuildSettings \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            | grep -E "TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|SDKROOT" \
+            || true
 
       - name: 11. Show generated project structure
         working-directory: desktop
         run: |
           echo "=== src-tauri/gen/apple ==="
 
-          find src-tauri/gen/apple -maxdepth 4 -print | head -300
+          find src-tauri/gen/apple \
+            -maxdepth 4 \
+            -print | head -300
 
       - name: 12. Build iOS unsigned
         working-directory: desktop
@@ -163,7 +172,9 @@ jobs:
 
           echo "=== Final artifacts ==="
 
-          find ios-artifacts -maxdepth 3 -print
+          find ios-artifacts \
+            -maxdepth 3 \
+            -print
 
       - name: 17. Upload iOS artifacts
         uses: actions/upload-artifact@v4
