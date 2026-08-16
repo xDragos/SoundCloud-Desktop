@@ -94,10 +94,16 @@ jobs:
             -d user \
             -s "$KEYCHAIN_PATH"
 
-          echo "$IOS_CERTIFICATE" | base64 --decode \
+          echo "$IOS_CERTIFICATE" | tr -d '\r\n ' | base64 --decode \
             > "$RUNNER_TEMP/signing_certificate.p12"
 
-          echo "=== Testing PKCS12 password ==="
+          echo "=== Checking decoded certificate ==="
+
+          file "$RUNNER_TEMP/signing_certificate.p12"
+
+          ls -lh "$RUNNER_TEMP/signing_certificate.p12"
+
+          echo "=== Checking PKCS12 ==="
 
           openssl pkcs12 \
             -in "$RUNNER_TEMP/signing_certificate.p12" \
