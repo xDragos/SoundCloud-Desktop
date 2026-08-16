@@ -23,15 +23,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: 4. Enable pnpm
+      - name: 4. Install pnpm
         run: |
-          corepack enable
-          corepack prepare pnpm@10.34.5 --activate
+          npm install -g pnpm@10.34.5
+          echo "=== pnpm ==="
+          which pnpm
           pnpm --version
-          node --version
 
       - name: 5. Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -43,7 +41,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
 
-      - name: 7. Install Tauri CLI
+      - name: 7. Check Tauri
         working-directory: ./desktop
         run: |
           pnpm exec tauri --version
@@ -54,8 +52,13 @@ jobs:
           pnpm exec tauri ios init
 
           echo "=== Generated Apple project ==="
+
           find src-tauri/gen/apple -maxdepth 3 \
-            \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) \
+            \( \
+              -name "*.xcodeproj" \
+              -o -name "*.xcworkspace" \
+              -o -name "Podfile" \
+            \) \
             -print
 
       - name: 9. Install CocoaPods
@@ -64,12 +67,18 @@ jobs:
           cd src-tauri/gen/apple
 
           if [ -f Podfile ]; then
+            echo "=== Installing CocoaPods dependencies ==="
             pod install
           else
             echo "No Podfile found"
           fi
 
-      - name: 10. Build iOS unsigned
+      - name: 10. Build frontend
+        working-directory: ./desktop
+        run: |
+          pnpm build
+
+      - name: 11. Build iOS unsigned
         working-directory: ./desktop
         run: |
           pnpm exec tauri ios build \
@@ -81,7 +90,7 @@ jobs:
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER=""
 
-      - name: 11. Find build outputs
+      - name: 12. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
@@ -93,7 +102,7 @@ jobs:
           echo "=== APP ==="
           find desktop -type d -name "*.app" -print 2>/dev/null || true
 
-      - name: 12. Upload IPA / archive
+      - name: 13. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
