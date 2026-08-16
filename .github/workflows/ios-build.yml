@@ -103,7 +103,7 @@ jobs:
 
           ls -lh "$RUNNER_TEMP/signing_certificate.p12"
 
-          echo "=== Checking PKCS12 ==="
+          echo "=== Checking PKCS12 password ==="
 
           openssl pkcs12 \
             -in "$RUNNER_TEMP/signing_certificate.p12" \
@@ -116,7 +116,6 @@ jobs:
             "$RUNNER_TEMP/signing_certificate.p12" \
             -P "$IOS_CERTIFICATE_PASSWORD" \
             -A \
-            -t cert \
             -f pkcs12 \
             "$KEYCHAIN_PATH"
 
@@ -140,8 +139,10 @@ jobs:
 
           mkdir -p "$PROFILE_DIR"
 
-          echo "$IOS_MOBILE_PROVISION" | base64 --decode \
+          echo "$IOS_MOBILE_PROVISION" | tr -d '\r\n ' | base64 --decode \
             > "$RUNNER_TEMP/profile.mobileprovision"
+
+          echo "=== Reading provisioning profile ==="
 
           PROFILE_UUID=$(
             security cms -D \
@@ -159,7 +160,7 @@ jobs:
               /dev/stdin
           )
 
-          TEAM_ID=$(
+          PROFILE_TEAM=$(
             security cms -D \
               -i "$RUNNER_TEMP/profile.mobileprovision" |
             /usr/libexec/PlistBuddy \
@@ -169,7 +170,7 @@ jobs:
 
           echo "Profile name: $PROFILE_NAME"
           echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Team ID: $TEAM_ID"
+          echo "Profile Team ID: $PROFILE_TEAM"
 
           cp \
             "$RUNNER_TEMP/profile.mobileprovision" \
@@ -177,7 +178,15 @@ jobs:
 
           echo "=== Provisioning profile installed successfully ==="
 
-      - name: 12. Build signed iOS IPA
+      - name: 12. Verify Apple signing identity
+        run: |
+          echo "=== Available signing identities ==="
+
+          security find-identity \
+            -v \
+            -p codesigning
+
+      - name: 13. Build signed iOS IPA
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
@@ -191,28 +200,31 @@ jobs:
             --target aarch64 \
             --export-method debugging
 
-      - name: 13. Find build outputs
+      - name: 14. Find build outputs
         if: always()
         run: |
           echo "=== IPA ==="
+
           find desktop \
             -type f \
             -name "*.ipa" \
             -print 2>/dev/null || true
 
           echo "=== XCARCHIVE ==="
+
           find desktop \
             -type d \
             -name "*.xcarchive" \
             -print 2>/dev/null || true
 
           echo "=== APP ==="
+
           find desktop \
             -type d \
             -name "*.app" \
             -print 2>/dev/null || true
 
-      - name: 14. Upload artifacts
+      - name: 15. Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
