@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: 1. Checkout codul real
@@ -13,6 +13,11 @@ jobs:
         with:
           repository: 'zxcloli666/SoundCloud-Desktop'
           ref: 'main'
+
+      - name: 1b. Selecteaza Xcode stabil recent
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - name: 2. Setup Node.js
         uses: actions/setup-node@v4
@@ -49,7 +54,7 @@ jobs:
         run: |
           npx tauri ios build --target aarch64
 
-      - name: 9. Locate si Upload IPA
+      - name: 9. Locate IPA
         run: |
           echo "--- Cautare fisiere .ipa ---"
           find desktop/src-tauri/gen/apple -name "*.ipa" -o -name "*.xcarchive"
