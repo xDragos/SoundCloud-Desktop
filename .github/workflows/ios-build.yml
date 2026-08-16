@@ -181,7 +181,7 @@ jobs:
 
           pnpm exec tauri ios build \
             --target aarch64 \
-            --export-method ad-hoc
+            --export-method release-testing
 
       - name: 12. Find build outputs
         if: always()
