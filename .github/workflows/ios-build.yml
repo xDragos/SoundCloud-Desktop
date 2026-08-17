@@ -150,10 +150,14 @@ jobs:
           APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
+
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+
+          test -f "$PROJECT"
 
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
           import sys
+          import re
           from pathlib import Path
 
           project_path = Path(sys.argv[1])
@@ -161,51 +165,257 @@ jobs:
           bundle_id = sys.argv[3]
 
           text = project_path.read_text(encoding="utf-8")
+
+          # ------------------------------------------------------------
+          # 1. Basic signing / bundle configuration
+          # ------------------------------------------------------------
+
           lines = text.splitlines()
           out = []
-
-          frameworks = [
-    "MediaPlayer.framework",
-    "AVFoundation.framework",
-    "CoreAudio.framework",
-    "AudioToolbox.framework",
-    "CoreAudioTypes.framework",
-]
 
           for line in lines:
               stripped = line.strip()
 
               if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};')
+                  out.append(
+                      f"{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
+                  )
+
               elif stripped.startswith("CODE_SIGN_STYLE ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}CODE_SIGN_STYLE = Manual;')
+                  out.append(
+                      f"{indent}CODE_SIGN_STYLE = Manual;"
+                  )
+
               elif stripped.startswith("DEVELOPMENT_TEAM ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}DEVELOPMENT_TEAM = {team};')
+                  out.append(
+                      f"{indent}DEVELOPMENT_TEAM = {team};"
+                  )
+
               elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
+                  out.append(
+                      f"{indent}CODE_SIGNING_ALLOWED = NO;"
+                  )
+
+              elif stripped.startswith("CODE_SIGNING_REQUIRED ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(
+                      f"{indent}CODE_SIGNING_REQUIRED = NO;"
+                  )
+
+              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(
+                      f'{indent}CODE_SIGN_IDENTITY = "";'
+                  )
+
               elif "OTHER_LDFLAGS =" in line:
-    indent = line[:len(line) - len(line.lstrip())]
-    out.append(
-        f'{indent}OTHER_LDFLAGS = "$(inherited) '
-        '-ObjC '
-        '-framework MediaPlayer '
-        '-framework AVFoundation '
-        '-framework CoreAudio '
-        '-framework AudioToolbox '
-        '-framework CoreAudioTypes";'
-    )
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(
+                      f'{indent}OTHER_LDFLAGS = "$(inherited) '
+                      '-ObjC '
+                      '-framework MediaPlayer '
+                      '-framework AVFoundation '
+                      '-framework CoreAudio '
+                      '-framework AudioToolbox '
+                      '-framework CoreAudioTypes";'
+                  )
+
               else:
                   out.append(line)
 
-          project_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+          text = "\n".join(out) + "\n"
+
+          # ------------------------------------------------------------
+          # 2. Make sure the required iOS frameworks are explicitly
+          #    linked by the generated Xcode target.
+          #
+          #    Tauri/Souvlaki uses MediaPlayer for Now Playing metadata.
+          #    Without an actual PBXFileReference + PBXBuildFile entry,
+          #    OTHER_LDFLAGS alone may not be enough for the Rust target.
+          # ------------------------------------------------------------
+
+          frameworks = [
+              "MediaPlayer.framework",
+              "AVFoundation.framework",
+              "CoreAudio.framework",
+              "AudioToolbox.framework",
+              "CoreAudioTypes.framework",
+          ]
+
+          # Generate deterministic 24-character PBX IDs.
+          def pbx_id(name):
+              import hashlib
+              return hashlib.sha1(
+                  ("soundcloud-ios-" + name).encode("utf-8")
+              ).hexdigest().upper()[:24]
+
+          framework_entries = {}
+
+          for framework in frameworks:
+              framework_entries[framework] = {
+                  "file": pbx_id("file-" + framework),
+                  "build": pbx_id("build-" + framework),
+              }
+
+          # ------------------------------------------------------------
+          # 3. Find PBXFrameworksBuildPhase sections.
+          # ------------------------------------------------------------
+
+          build_phase_pattern = re.compile(
+              r'([A-F0-9]{24}) /\* Frameworks \*/ = \{'
+              r'\s*isa = PBXFrameworksBuildPhase;'
+              r'(.*?)'
+              r'\n\s*\};',
+              re.DOTALL
+          )
+
+          build_phase_matches = list(
+              build_phase_pattern.finditer(text)
+          )
+
+          if not build_phase_matches:
+              print("ERROR: No PBXFrameworksBuildPhase found.")
+              sys.exit(1)
+
+          # ------------------------------------------------------------
+          # 4. Add PBXBuildFile entries.
+          # ------------------------------------------------------------
+
+          build_file_marker = "/* Begin PBXBuildFile section */"
+
+          if build_file_marker not in text:
+              print("ERROR: PBXBuildFile section not found.")
+              sys.exit(1)
+
+          build_file_entries = []
+
+          for framework, ids in framework_entries.items():
+              build_id = ids["build"]
+              file_id = ids["file"]
+
+              # Avoid duplicates if Tauri already added the framework.
+              if re.search(
+                  rf'{re.escape(build_id)} /\* {re.escape(framework)} in Frameworks \*/',
+                  text
+              ):
+                  continue
+
+              build_file_entries.append(
+                  f'\t\t{build_id} /* {framework} in Frameworks */ = {{isa = PBXBuildFile; fileRef = {file_id} /* {framework} */; }};'
+              )
+
+          if build_file_entries:
+              text = text.replace(
+                  build_file_marker,
+                  build_file_marker
+                  + "\n"
+                  + "\n".join(build_file_entries),
+                  1
+              )
+
+          # ------------------------------------------------------------
+          # 5. Add PBXFileReference entries.
+          # ------------------------------------------------------------
+
+          file_ref_marker = "/* Begin PBXFileReference section */"
+
+          if file_ref_marker not in text:
+              print("ERROR: PBXFileReference section not found.")
+              sys.exit(1)
+
+          file_ref_entries = []
+
+          for framework, ids in framework_entries.items():
+              file_id = ids["file"]
+
+              if re.search(
+                  rf'{re.escape(file_id)} /\* {re.escape(framework)} \*/',
+                  text
+              ):
+                  continue
+
+              file_ref_entries.append(
+                  f'\t\t{file_id} /* {framework} */ = {{isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = {framework}; path = System/Library/Frameworks/{framework}; sourceTree = SDKROOT; }};'
+              )
+
+          if file_ref_entries:
+              text = text.replace(
+                  file_ref_marker,
+                  file_ref_marker
+                  + "\n"
+                  + "\n".join(file_ref_entries),
+                  1
+              )
+
+          # ------------------------------------------------------------
+          # 6. Add frameworks to every PBXFrameworksBuildPhase.
+          # ------------------------------------------------------------
+
+          def patch_framework_phase(match):
+              phase_id = match.group(1)
+              body = match.group(2)
+
+              for framework, ids in framework_entries.items():
+                  build_id = ids["build"]
+
+                  if re.search(
+                      rf'\b{re.escape(build_id)}\b',
+                      body
+                  ):
+                      continue
+
+                  body += (
+                      f'\n\t\t\t\t{build_id} /* {framework} in Frameworks */,'
+                  )
+
+              return (
+                  f'{phase_id} /* Frameworks */ = {{'
+                  f'\n\t\t\tisa = PBXFrameworksBuildPhase;'
+                  + body
+                  + '\n\t\t};'
+              )
+
+          text = build_phase_pattern.sub(
+              patch_framework_phase,
+              text
+          )
+
+          # ------------------------------------------------------------
+          # 7. Write patched project.
+          # ------------------------------------------------------------
+
+          project_path.write_text(
+              text,
+              encoding="utf-8"
+          )
+
+          print("=== Patch Applied Successfully ===")
+          print(f"Bundle ID: {bundle_id}")
+          print(f"Development Team: {team}")
+          print("Code signing: disabled for archive stage")
+          print("Linked frameworks:")
+
+          for framework in frameworks:
+              print(f"  - {framework}")
+
           PY
 
-          echo "=== Patch Applied Successfully ==="
+          echo "=== Verifying patched Xcode project ==="
 
+          grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$PROJECT" | head -10 || true
+          grep -n "DEVELOPMENT_TEAM" "$PROJECT" | head -10 || true
+          grep -n "CODE_SIGN_STYLE" "$PROJECT" | head -10 || true
+          grep -n "MediaPlayer.framework" "$PROJECT" || true
+          grep -n "AVFoundation.framework" "$PROJECT" || true
+          grep -n "CoreAudio.framework" "$PROJECT" || true
+          grep -n "AudioToolbox.framework" "$PROJECT" || true
+          grep -n "CoreAudioTypes.framework" "$PROJECT" || true
+
+          echo "=== Xcode project patch complete ==="
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
@@ -347,7 +557,7 @@ jobs:
           echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
           echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
 
-      - name: 14. Build iOS archive with Tauri without signing
+            - name: 14. Build iOS archive with Tauri without signing
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
@@ -359,9 +569,8 @@ jobs:
           CODE_SIGN_IDENTITY: ""
         run: |
           set -e
-          pnpm exec tauri ios build --ci --no-sign --archive-only -- OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox'
-
-
+          pnpm exec tauri ios build --ci --no-sign --archive-only -- \
+            OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox -framework CoreAudioTypes'
 
 
       - name: 15. Find generated XCArchive
