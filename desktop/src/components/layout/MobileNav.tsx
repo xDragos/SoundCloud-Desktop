@@ -23,7 +23,10 @@ export const MobileNav = React.memo(() => {
   return (
     <nav
       className="md:hidden fixed left-0 right-0 bottom-0 z-[51] flex items-stretch justify-around border-t border-white/[0.06] bg-[#0a0a0c]/92 backdrop-blur-xl"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      style={{
+        height: 'var(--mobile-nav-h, 64px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
     >
       {navItems.map((item) => (
         <NavLink
