@@ -51,7 +51,6 @@ jobs:
           set -e
           echo "Tauri iOS project will be initialized after iOS framework configuration."
 
-
       - name: 8. Build frontend
         working-directory: ./desktop
         run: |
@@ -68,6 +67,8 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
 
+          echo "=== Creating signing keychain ==="
+
           security create-keychain \
             -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
@@ -82,6 +83,9 @@ jobs:
 
           security list-keychains \
             -d user \
+            -s "$KEYCHAIN_PATH" login.keychain-db
+
+          security default-keychain \
             -s "$KEYCHAIN_PATH"
 
           CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
@@ -107,6 +111,8 @@ jobs:
             -T /usr/bin/security \
             -T /usr/bin/productbuild \
             -T /usr/bin/xcodebuild
+
+          echo "=== Configuring key partition list ==="
 
           security set-key-partition-list \
             -S apple-tool:,apple: \
@@ -153,6 +159,9 @@ jobs:
           echo "BUILD_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "BUILD_KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
 
+          echo "=== Signing identity selected ==="
+          echo "$IDENTITY"
+
       - name: 10. Install provisioning profile
         env:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
@@ -160,6 +169,7 @@ jobs:
           set -e
 
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
           mkdir -p "$PROFILE_DIR"
 
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
@@ -226,81 +236,64 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Configure generated Xcode project
+      - name: 11. Configure Tauri iOS frameworks
         working-directory: ./desktop
-        env:
-          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
-          APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
 
-          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          TAURI_CONFIG="src-tauri/tauri.conf.json"
 
-          test -f "$PROJECT"
+          test -f "$TAURI_CONFIG"
 
-          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
+          python3 - "$TAURI_CONFIG" <<'PY'
+          import json
           import sys
           from pathlib import Path
 
-          project = Path(sys.argv[1])
-          team = sys.argv[2]
-          bundle_id = sys.argv[3]
+          path = Path(sys.argv[1])
 
-          text = project.read_text(encoding="utf-8")
+          with path.open("r", encoding="utf-8") as f:
+              config = json.load(f)
 
-          lines = text.splitlines()
-          output = []
+          bundle = config.setdefault("bundle", {})
+          ios = bundle.setdefault("iOS", {})
 
-          for line in lines:
-              stripped = line.strip()
-              indent = line[:len(line) - len(line.lstrip())]
+          ios["developmentTeam"] = "29897MSSY7"
 
-              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
-                  output.append(
-                      f"{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
-                  )
+          ios["frameworks"] = [
+              "MediaPlayer",
+              "AVFoundation",
+              "CoreAudio",
+              "AudioToolbox"
+          ]
 
-              elif stripped.startswith("DEVELOPMENT_TEAM ="):
-                  output.append(
-                      f"{indent}DEVELOPMENT_TEAM = {team};"
-                  )
-
-              elif stripped.startswith("CODE_SIGN_STYLE ="):
-                  output.append(
-                      f"{indent}CODE_SIGN_STYLE = Manual;"
-                  )
-
-              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
-                  output.append(
-                      f"{indent}CODE_SIGNING_ALLOWED = NO;"
-                  )
-
-              elif stripped.startswith("CODE_SIGNING_REQUIRED ="):
-                  output.append(
-                      f"{indent}CODE_SIGNING_REQUIRED = NO;"
-                  )
-
-              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
-                  output.append(
-                      f'{indent}CODE_SIGN_IDENTITY = "";'
-                  )
-
-              else:
-                  output.append(line)
-
-          project.write_text(
-              "\n".join(output) + "\n",
+          path.write_text(
+              json.dumps(
+                  config,
+                  indent=2,
+                  ensure_ascii=False
+              ) + "\n",
               encoding="utf-8"
           )
 
-          print("=== Xcode signing configuration applied ===")
-          print(f"Bundle ID: {bundle_id}")
-          print(f"Development Team: {team}")
-          print("Manual signing: enabled")
-          print("Archive signing: disabled")
+          print("=== Tauri iOS configuration ===")
+          print("Development Team: 29897MSSY7")
+          print("iOS frameworks:")
+
+          for framework in ios["frameworks"]:
+              print(f"  - {framework}")
+
+          print("CoreAudioTypes: NOT INCLUDED")
           PY
 
-          echo "=== Validating Xcode project ==="
+          echo "=== Recreating Tauri iOS project ==="
+
+          rm -rf src-tauri/gen/apple
+
+          APPLE_DEVELOPMENT_TEAM=29897MSSY7 \
+            pnpm exec tauri ios init
+
+          echo "=== Validating generated Xcode project ==="
 
           xcodebuild \
             -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
@@ -308,8 +301,34 @@ jobs:
 
           echo "=== Xcode project is valid ==="
 
+          echo "=== Checking generated frameworks ==="
 
-      - name: 11b. Configure iOS framework linker flags
+          grep -n "MediaPlayer.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          grep -n "AVFoundation.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          grep -n "CoreAudio.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          grep -n "AudioToolbox.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          if grep -q "CoreAudioTypes.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"; then
+
+            echo "ERROR: CoreAudioTypes.framework was generated."
+            exit 1
+          fi
+
+          echo "=== Framework configuration complete ==="
+
+      - name: 11b. Configure iOS linker flags in Xcode project
         working-directory: ./desktop
         run: |
           set -e
@@ -320,54 +339,68 @@ jobs:
           import sys
           from pathlib import Path
 
-          project = Path(sys.argv[1])
-          text = project.read_text(encoding="utf-8")
+          path = Path(sys.argv[1])
 
-          framework_flags = (
-              '$(inherited) '
-              '-ObjC '
-              '-framework MediaPlayer '
-              '-framework AVFoundation '
-              '-framework CoreAudio '
-              '-framework AudioToolbox'
+          text = path.read_text(encoding="utf-8")
+
+          frameworks = (
+              "-framework MediaPlayer "
+              "-framework AVFoundation "
+              "-framework CoreAudio "
+              "-framework AudioToolbox"
+          )
+
+          replacement = (
+              'OTHER_LDFLAGS = "$(inherited) '
+              f'{frameworks}";'
           )
 
           lines = text.splitlines()
+
           output = []
+          found = False
 
           for line in lines:
-              stripped = line.strip()
+              if line.strip().startswith("OTHER_LDFLAGS ="):
+                  indent = line[
+                      :len(line) - len(line.lstrip())
+                  ]
 
-              if stripped.startswith("OTHER_LDFLAGS ="):
-                  indent = line[:len(line) - len(line.lstrip())]
                   output.append(
-                      f'{indent}OTHER_LDFLAGS = "{framework_flags}";'
+                      indent + replacement
                   )
+
+                  found = True
+
               else:
                   output.append(line)
 
-          project.write_text(
-              "\n".join(output) + "\n",
-              encoding="utf-8"
-          )
+          text = "\n".join(output) + "\n"
 
-          print("=== iOS linker flags configured ===")
-          print("-ObjC")
-          print("-framework MediaPlayer")
-          print("-framework AVFoundation")
-          print("-framework CoreAudio")
-          print("-framework AudioToolbox")
-          print("CoreAudioTypes: NOT linked")
+          if not found:
+              print(
+                  "No existing OTHER_LDFLAGS entry found."
+              )
+              print(
+                  "Using Tauri-generated linker configuration."
+              )
+
+          else:
+              path.write_text(
+                  text,
+                  encoding="utf-8"
+              )
+
+              print(
+                  "OTHER_LDFLAGS updated."
+              )
           PY
 
-          echo "=== Final project validation ==="
+          echo "=== Re-validating Xcode project ==="
 
           xcodebuild \
-            -project "$PROJECT" \
+            -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
             -list
-
-          echo "=== Project validation successful ==="
-
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
@@ -401,7 +434,9 @@ jobs:
         run: |
           set -e
 
-          python3 - "$RUNNER_TEMP/verify-profile.plist" "$SIGNING_IDENTITY_HASH" <<'PY'
+          python3 \
+            "$RUNNER_TEMP/verify-profile.plist" \
+            "$SIGNING_IDENTITY_HASH" <<'PY'
           import sys
           import plistlib
           import hashlib
@@ -412,10 +447,15 @@ jobs:
           with open(profile_path, "rb") as f:
               profile = plistlib.load(f)
 
-          certs = profile.get("DeveloperCertificates", [])
+          certs = profile.get(
+              "DeveloperCertificates",
+              []
+          )
 
           hashes = [
-              hashlib.sha1(bytes(cert)).hexdigest().upper()
+              hashlib.sha1(
+                  bytes(cert)
+              ).hexdigest().upper()
               for cert in certs
           ]
 
@@ -424,7 +464,9 @@ jobs:
           )
 
           for certificate_hash in hashes:
-              print(f" - {certificate_hash}")
+              print(
+                  f" - {certificate_hash}"
+              )
 
           print(
               f"Imported signing identity hash: {expected_hash}"
@@ -435,9 +477,12 @@ jobs:
                   "ERROR: The imported IOS_CERTIFICATE is NOT "
                   "embedded in this provisioning profile."
               )
+
               sys.exit(1)
 
-          print("OK: signing identity matches provisioning profile.")
+          print(
+              "OK: signing identity matches provisioning profile."
+          )
           PY
 
       - name: 13. Ensure Tauri CLI 2.11
@@ -493,7 +538,10 @@ jobs:
 
           OPUS_PREFIX="$RUNNER_TEMP/opus-ios"
 
-          IOS_FLAGS="-arch arm64 -isysroot $IOS_SDK -mios-version-min=13.0"
+          IOS_FLAGS="\
+          -arch arm64 \
+          -isysroot $IOS_SDK \
+          -mios-version-min=13.0"
 
           pushd "$OPUS_SRC"
 
@@ -522,7 +570,9 @@ jobs:
 
           mkdir -p "$CARGO_HOME"
 
-          python3 - "$CARGO_CONFIG" "$OPUS_PREFIX" <<'PY'
+          python3 \
+            "$CARGO_CONFIG" \
+            "$OPUS_PREFIX" <<'PY'
           import sys
 
           path = sys.argv[1]
@@ -535,10 +585,15 @@ jobs:
                   path,
                   encoding="utf-8"
               ).read().splitlines()
+
           except FileNotFoundError:
               lines = []
 
-          def upsert_table(lines, header, body_lines):
+          def upsert_table(
+              lines,
+              header,
+              body_lines
+          ):
               out = []
               i = 0
               found = False
@@ -547,6 +602,7 @@ jobs:
                   line = lines[i]
 
                   if line.strip() == header:
+
                       if not found:
                           out.append(line)
                           out.extend(body_lines)
@@ -556,7 +612,9 @@ jobs:
 
                       while (
                           i < len(lines)
-                          and not lines[i].strip().startswith("[")
+                          and not lines[i]
+                          .strip()
+                          .startswith("[")
                       ):
                           i += 1
 
@@ -566,6 +624,7 @@ jobs:
                   i += 1
 
               if not found:
+
                   if out and out[-1].strip():
                       out.append("")
 
@@ -592,8 +651,14 @@ jobs:
               ]
           )
 
-          with open(path, "w", encoding="utf-8") as f:
-              f.write("\n".join(lines) + "\n")
+          with open(
+              path,
+              "w",
+              encoding="utf-8"
+          ) as f:
+              f.write(
+                  "\n".join(lines) + "\n"
+              )
           PY
 
           echo "OPUS_NO_PKG=1" >> "$GITHUB_ENV"
@@ -622,7 +687,6 @@ jobs:
 
           echo "=== Tauri iOS archive build finished ==="
 
-
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
         run: |
@@ -645,6 +709,9 @@ jobs:
 
           echo "ARCHIVE_PATH=$PWD/$ARCHIVE" >> "$GITHUB_ENV"
 
+          echo "=== Archive found ==="
+          echo "$PWD/$ARCHIVE"
+
       - name: 16. Create ExportOptions.plist
         run: |
           set -e
@@ -654,6 +721,7 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+
               <key>method</key>
               <string>app-store-connect</string>
 
@@ -671,24 +739,44 @@ jobs:
 
               <key>signingCertificate</key>
               <string>${SIGNING_IDENTITY}</string>
+
           </dict>
           </plist>
           EOF
+
+          echo "=== ExportOptions.plist ==="
+
+          cat "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: 17. Export signed IPA with xcodebuild
         run: |
           set -e
 
+          echo "=== Preparing export ==="
+
           EXPORT_DIR="$GITHUB_WORKSPACE/artifacts/exported"
 
           mkdir -p "$EXPORT_DIR"
+
+          echo "=== Keychain available to codesign ==="
+
+          security list-keychains
+
+          echo "=== Signing identities ==="
+
+          security find-identity \
+            -v \
+            -p codesigning
+
+          echo "=== Exporting archive ==="
 
           xcodebuild \
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -keychainPath "$BUILD_KEYCHAIN_PATH"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+          echo "=== Export completed ==="
 
           IPA="$(
             find "$EXPORT_DIR" \
@@ -711,17 +799,74 @@ jobs:
 
           echo "IPA_PATH=$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa" >> "$GITHUB_ENV"
 
+          echo "=== IPA generated ==="
+          ls -lh "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
+
       - name: 18. Verify IPA
         run: |
           set -e
 
           test -f "$IPA_PATH"
 
+          echo "=== IPA ==="
+
           ls -lh "$IPA_PATH"
+
+          echo "=== IPA contents ==="
 
           unzip -l "$IPA_PATH" \
             | grep -E '\.app/Info\.plist$|embedded\.mobileprovision$' \
             || true
+
+      - name: 18b. Verify IPA code signature
+        run: |
+          set -e
+
+          IPA_DIR="$RUNNER_TEMP/ipa-verify"
+
+          rm -rf "$IPA_DIR"
+
+          mkdir -p "$IPA_DIR"
+
+          unzip -q \
+            "$IPA_PATH" \
+            -d "$IPA_DIR"
+
+          APP_PATH="$(
+            find "$IPA_DIR/Payload" \
+              -maxdepth 1 \
+              -type d \
+              -name "*.app" \
+              -print \
+              -quit
+          )"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: Could not find .app inside IPA."
+            exit 1
+          fi
+
+          echo "=== App ==="
+          echo "$APP_PATH"
+
+          echo "=== Code signature ==="
+
+          codesign \
+            -dv \
+            --verbose=4 \
+            "$APP_PATH" \
+            2>&1 || true
+
+          echo "=== Signature verification ==="
+
+          codesign \
+            --verify \
+            --deep \
+            --strict \
+            --verbose=4 \
+            "$APP_PATH"
+
+          echo "=== IPA signature is valid ==="
 
       - name: 19. Copy archive
         run: |
