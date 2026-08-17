@@ -1311,3 +1311,17 @@ select,
         animation: none;
     }
 }
+
+/* ── Mobile bottom nav clearance ──────────────────────────────
+   MobileNav (components/layout/MobileNav.tsx) is a fixed bar pinned to the
+   bottom on phone-width viewports (< Tailwind `md`, 768px). .npb is itself
+   a `position: absolute; bottom: 0` overlay (see the "Now Playing Bar" block
+   above), so on phones the floating player dock needs to sit above the nav
+   bar instead of flush with the screen edge. 58px matches MobileNav's icon +
+   label content height; safe-area covers the iPhone home-indicator inset. */
+@media (max-width: 767px) {
+    .npb {
+        bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
