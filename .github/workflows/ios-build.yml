@@ -159,8 +159,6 @@ jobs:
           project_path = Path(sys.argv[1])
           team = sys.argv[2]
           bundle_id = sys.argv[3]
-          profile_uuid = sys.argv[4]
-          signing_identity = sys.argv[5]
 
           text = project_path.read_text(encoding="utf-8")
 
@@ -175,16 +173,13 @@ jobs:
                   out.append(f'{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};')
               elif stripped.startswith("CODE_SIGN_STYLE ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}CODE_SIGN_STYLE = Manual;')
+                  out.append(f'{indent}CODE_SIGN_STYLE = Automatic;')
               elif stripped.startswith("DEVELOPMENT_TEAM ="):
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}DEVELOPMENT_TEAM = {team};')
-              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
+              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}CODE_SIGN_IDENTITY = "{signing_identity}";')
-              elif stripped.startswith("PROVISIONING_PROFILE_SPECIFIER ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";')
+                  out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
               else:
                   out.append(line)
 
@@ -325,7 +320,7 @@ jobs:
               f'rustflags = ["-L", "native={lib_dir}"]'
           ])
 
-          open(path, "w").write("\n".join(lines) + "\n")
+          open(path, "w").write("\n".join(lines) + "\n", encoding="utf-8")
           PY
 
           echo "OPUS_NO_PKG=1" >> "$GITHUB_ENV"
@@ -339,12 +334,12 @@ jobs:
           OPUS_NO_PKG: "1"
           OPUS_STATIC: "1"
           OPUS_LIB_DIR: "${{ env.OPUS_LIB_DIR }}"
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
         run: |
           set -e
-          pnpm exec tauri ios build --ci --no-sign --archive-only -- \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+          pnpm exec tauri ios build --ci --no-sign --archive-only
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
