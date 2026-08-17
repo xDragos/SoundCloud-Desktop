@@ -161,7 +161,6 @@ jobs:
           bundle_id = sys.argv[3]
 
           text = project_path.read_text(encoding="utf-8")
-
           lines = text.splitlines()
           out = []
 
@@ -182,7 +181,8 @@ jobs:
                   out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
               elif stripped.startswith("OTHER_LDFLAGS ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation");')
+                  # Includem explicit MediaPlayer, CoreAudio, AVFoundation si AudioToolbox
+                  out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation", "-framework", "CoreAudio", "-framework", "AudioToolbox");')
               else:
                   out.append(line)
 
@@ -341,10 +341,11 @@ jobs:
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
-          RUSTFLAGS: "-L native=${{ env.OPUS_LIB_DIR }}/lib -l framework=MediaPlayer -l framework=AVFoundation"
+          RUSTFLAGS: "-L native=${{ env.OPUS_LIB_DIR }}/lib -l framework=MediaPlayer -l framework=AVFoundation -l framework=CoreAudio -l framework=AudioToolbox"
         run: |
           set -e
           pnpm exec tauri ios build --ci --no-sign --archive-only
+
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
