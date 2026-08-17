@@ -20,7 +20,7 @@ const NavButtons = React.memo(() => {
     const onHome = location.pathname === '/home';
 
   return (
-      <div className="flex items-center gap-1">
+      <div className="hidden md:flex items-center gap-1">
       <button
         type="button"
         disabled={!canGoBack}
@@ -107,7 +107,9 @@ export const Titlebar = React.memo(() => {
             }}
         />
 
-        {/* LEFT: logo (image) + collapsible wordmark + persistent nav */}
+        {/* LEFT: logo (image) + collapsible wordmark + persistent nav.
+            Wordmark + back/forward/home collapse away on phone width — MobileNav
+            (bottom bar) already covers Home there, and the row has no room to spare. */}
         <div className="flex items-center gap-3 shrink-0" data-tauri-drag-region>
             <div className="flex items-center" data-tauri-drag-region>
                 <img
@@ -125,7 +127,7 @@ export const Titlebar = React.memo(() => {
               race when the sidebar toggles. max-width + padding fold the reclaimed space. */}
                 <span
                     data-tauri-drag-region
-                    className="overflow-hidden whitespace-nowrap text-[14px] font-bold tracking-tight text-white/85"
+                    className="hidden md:inline-block overflow-hidden whitespace-nowrap text-[14px] font-bold tracking-tight text-white/85"
                     style={{
                         maxWidth: collapsed ? 0 : '140px',
                         opacity: collapsed ? 0 : 1,
@@ -146,8 +148,10 @@ export const Titlebar = React.memo(() => {
             <GlobalSearch/>
         </div>
 
-        {/* RIGHT: window controls */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        {/* RIGHT: window controls — desktop-only window chrome (minimize/maximize/
+            close/fullscreen). No iOS equivalent, and win.close() would quit the app
+            if tapped by accident on a phone, so hide the whole cluster there. */}
+        <div className="hidden md:flex items-center gap-0.5 shrink-0">
             <WinButton onClick={() => void toggleWindowFullscreen()} label={t('kb.fullscreen')}>
                 <Fullscreen size={13}/>
             </WinButton>
