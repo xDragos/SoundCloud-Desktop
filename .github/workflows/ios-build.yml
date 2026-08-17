@@ -217,7 +217,7 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Patch generated Xcode project safely via Python
+      - name: 11. Verify generated Xcode project
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
@@ -225,106 +225,28 @@ jobs:
         run: |
           set -e
 
-          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj"
 
-          test -f "$PROJECT"
+          test -d "$PROJECT"
+          test -f "$PROJECT/project.pbxproj"
 
-          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
-          import sys
-          from pathlib import Path
-
-          project_path = Path(sys.argv[1])
-          team = sys.argv[2]
-          bundle_id = sys.argv[3]
-
-          text = project_path.read_text(encoding="utf-8")
-
-          lines = text.splitlines()
-          out = []
-
-          for line in lines:
-              stripped = line.strip()
-
-              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f"{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
-                  )
-
-              elif stripped.startswith("CODE_SIGN_STYLE ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f"{indent}CODE_SIGN_STYLE = Manual;"
-                  )
-
-              elif stripped.startswith("DEVELOPMENT_TEAM ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f"{indent}DEVELOPMENT_TEAM = {team};"
-                  )
-
-              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f"{indent}CODE_SIGNING_ALLOWED = NO;"
-                  )
-
-              elif stripped.startswith("CODE_SIGNING_REQUIRED ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f"{indent}CODE_SIGNING_REQUIRED = NO;"
-                  )
-
-              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f'{indent}CODE_SIGN_IDENTITY = "";'
-                  )
-
-              elif stripped.startswith("OTHER_LDFLAGS ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(
-                      f'{indent}OTHER_LDFLAGS = "$(inherited) '
-                      '-ObjC '
-                      '-framework MediaPlayer '
-                      '-framework AVFoundation '
-                      '-framework CoreAudio '
-                      '-framework AudioToolbox";'
-                  )
-
-              else:
-                  out.append(line)
-
-          project_path.write_text(
-              "\n".join(out) + "\n",
-              encoding="utf-8"
-          )
-
-          print("=== Xcode project patch applied ===")
-          print(f"Bundle ID: {bundle_id}")
-          print(f"Development Team: {team}")
-          print("Code signing: disabled for archive stage")
-          print("OTHER_LDFLAGS configured:")
-          print("  -ObjC")
-          print("  -framework MediaPlayer")
-          print("  -framework AVFoundation")
-          print("  -framework CoreAudio")
-          print("  -framework AudioToolbox")
-          PY
-
-          echo "=== Validating Xcode project syntax ==="
+          echo "=== Validating generated Xcode project ==="
 
           xcodebuild \
             -project "$PROJECT" \
-            -list \
-            > "$RUNNER_TEMP/xcode-project-list.txt"
+            -list
 
-          echo "=== Xcode project is valid ==="
+          echo "=== Generated Xcode project is valid ==="
 
-          grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$PROJECT" | head -10 || true
-          grep -n "DEVELOPMENT_TEAM" "$PROJECT" | head -10 || true
-          grep -n "CODE_SIGN_STYLE" "$PROJECT" | head -10 || true
-          grep -n "OTHER_LDFLAGS" "$PROJECT" | head -10 || true
+          echo "=== Project settings ==="
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -showBuildSettings \
+            | grep -E \
+              'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE' \
+            || true
+
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
@@ -573,6 +495,11 @@ jobs:
             --no-sign \
             --archive-only \
             -- \
+            PRODUCT_BUNDLE_IDENTIFIER=app.star4684.aquila7560 \
+            DEVELOPMENT_TEAM=29897MSSY7 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
             OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox'
 
 
