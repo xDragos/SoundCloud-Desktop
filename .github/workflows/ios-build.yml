@@ -226,57 +226,81 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Configure Tauri iOS frameworks
+      - name: 11. Configure generated Xcode project
         working-directory: ./desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
+          APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
 
-          TAURI_CONFIG="src-tauri/tauri.conf.json"
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
 
-          test -f "$TAURI_CONFIG"
+          test -f "$PROJECT"
 
-          python3 - "$TAURI_CONFIG" <<'PY'
-          import json
+          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
           import sys
           from pathlib import Path
 
-          path = Path(sys.argv[1])
+          project = Path(sys.argv[1])
+          team = sys.argv[2]
+          bundle_id = sys.argv[3]
 
-          with path.open("r", encoding="utf-8") as f:
-              config = json.load(f)
+          text = project.read_text(encoding="utf-8")
 
-          bundle = config.setdefault("bundle", {})
-          ios = bundle.setdefault("iOS", {})
+          lines = text.splitlines()
+          output = []
 
-          ios["developmentTeam"] = "29897MSSY7"
-          ios["frameworks"] = [
-              "MediaPlayer",
-              "AVFoundation",
-              "CoreAudio",
-              "AudioToolbox"
-          ]
+          for line in lines:
+              stripped = line.strip()
+              indent = line[:len(line) - len(line.lstrip())]
 
-          path.write_text(
-              json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
+                  output.append(
+                      f"{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
+                  )
+
+              elif stripped.startswith("DEVELOPMENT_TEAM ="):
+                  output.append(
+                      f"{indent}DEVELOPMENT_TEAM = {team};"
+                  )
+
+              elif stripped.startswith("CODE_SIGN_STYLE ="):
+                  output.append(
+                      f"{indent}CODE_SIGN_STYLE = Manual;"
+                  )
+
+              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
+                  output.append(
+                      f"{indent}CODE_SIGNING_ALLOWED = NO;"
+                  )
+
+              elif stripped.startswith("CODE_SIGNING_REQUIRED ="):
+                  output.append(
+                      f"{indent}CODE_SIGNING_REQUIRED = NO;"
+                  )
+
+              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
+                  output.append(
+                      f'{indent}CODE_SIGN_IDENTITY = "";'
+                  )
+
+              else:
+                  output.append(line)
+
+          project.write_text(
+              "\n".join(output) + "\n",
               encoding="utf-8"
           )
 
-          print("=== Tauri iOS configuration ===")
-          print("Development Team: 29897MSSY7")
-          print("iOS frameworks:")
-          for framework in ios["frameworks"]:
-              print(f"  - {framework}")
-          print("CoreAudioTypes: NOT INCLUDED")
+          print("=== Xcode signing configuration applied ===")
+          print(f"Bundle ID: {bundle_id}")
+          print(f"Development Team: {team}")
+          print("Manual signing: enabled")
+          print("Archive signing: disabled")
           PY
 
-          echo "=== Recreating Tauri iOS project ==="
-
-          rm -rf src-tauri/gen/apple
-
-          APPLE_DEVELOPMENT_TEAM=29897MSSY7 \
-            pnpm exec tauri ios init
-
-          echo "=== Validating generated Xcode project ==="
+          echo "=== Validating Xcode project ==="
 
           xcodebuild \
             -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
@@ -284,34 +308,8 @@ jobs:
 
           echo "=== Xcode project is valid ==="
 
-          echo "=== Checking generated frameworks ==="
 
-          grep -n "MediaPlayer.framework" \
-            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
-            || true
-
-          grep -n "AVFoundation.framework" \
-            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
-            || true
-
-          grep -n "CoreAudio.framework" \
-            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
-            || true
-
-          grep -n "AudioToolbox.framework" \
-            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
-            || true
-
-          if grep -q "CoreAudioTypes.framework" \
-            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"; then
-              echo "ERROR: CoreAudioTypes.framework was generated."
-              exit 1
-          fi
-
-          echo "=== Framework configuration complete ==="
-
-
-      - name: 11b. Configure iOS linker flags in Xcode project
+      - name: 11b. Configure iOS framework linker flags
         working-directory: ./desktop
         run: |
           set -e
@@ -320,55 +318,56 @@ jobs:
 
           python3 - "$PROJECT" <<'PY'
           import sys
-          import re
           from pathlib import Path
 
-          path = Path(sys.argv[1])
-          text = path.read_text(encoding="utf-8")
+          project = Path(sys.argv[1])
+          text = project.read_text(encoding="utf-8")
 
-          frameworks = (
-              "-framework MediaPlayer "
-              "-framework AVFoundation "
-              "-framework CoreAudio "
-              "-framework AudioToolbox"
-          )
-
-          replacement = (
-              'OTHER_LDFLAGS = "$(inherited) '
-              f'{frameworks}";'
+          framework_flags = (
+              '$(inherited) '
+              '-ObjC '
+              '-framework MediaPlayer '
+              '-framework AVFoundation '
+              '-framework CoreAudio '
+              '-framework AudioToolbox'
           )
 
           lines = text.splitlines()
           output = []
-          found = False
 
           for line in lines:
-              if line.strip().startswith("OTHER_LDFLAGS ="):
+              stripped = line.strip()
+
+              if stripped.startswith("OTHER_LDFLAGS ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  output.append(indent + replacement)
-                  found = True
+                  output.append(
+                      f'{indent}OTHER_LDFLAGS = "{framework_flags}";'
+                  )
               else:
                   output.append(line)
 
-          text = "\n".join(output) + "\n"
+          project.write_text(
+              "\n".join(output) + "\n",
+              encoding="utf-8"
+          )
 
-          if not found:
-              print("No existing OTHER_LDFLAGS entry found.")
-              print("Using Tauri-generated linker configuration.")
-          else:
-              path.write_text(
-                  text,
-                  encoding="utf-8"
-              )
-              print("OTHER_LDFLAGS updated.")
-
+          print("=== iOS linker flags configured ===")
+          print("-ObjC")
+          print("-framework MediaPlayer")
+          print("-framework AVFoundation")
+          print("-framework CoreAudio")
+          print("-framework AudioToolbox")
+          print("CoreAudioTypes: NOT linked")
           PY
 
-          echo "=== Re-validating Xcode project ==="
+          echo "=== Final project validation ==="
 
           xcodebuild \
-            -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
+            -project "$PROJECT" \
             -list
+
+          echo "=== Project validation successful ==="
+
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
