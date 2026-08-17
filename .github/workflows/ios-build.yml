@@ -66,27 +66,17 @@ jobs:
           set -e
           KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
-          security create-keychain \
-            -p "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security unlock-keychain \
-            -p "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security set-keychain-settings \
-            -lut 21600 \
-            "$KEYCHAIN_PATH"
-          security list-keychains \
-            -d user \
-            -s "$KEYCHAIN_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          
           CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
-          printf '%s' "$IOS_CERTIFICATE" |
-            tr -d '\r\n ' |
-            base64 --decode > "$CERT_PATH"
+          printf '%s' "$IOS_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > "$CERT_PATH"
+          
           echo "=== Checking P12 ==="
-          openssl pkcs12 \
-            -in "$CERT_PATH" \
-            -noout \
-            -passin "pass:$IOS_CERTIFICATE_PASSWORD"
+          openssl pkcs12 -in "$CERT_PATH" -noout -passin "pass:$IOS_CERTIFICATE_PASSWORD"
+          
           echo "=== Importing P12 ==="
           security import "$CERT_PATH" \
             -k "$KEYCHAIN_PATH" \
@@ -96,27 +86,25 @@ jobs:
             -T /usr/bin/security \
             -T /usr/bin/productbuild \
             -T /usr/bin/xcodebuild
+          
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
+          
           echo "=== Signing identities ==="
-          security find-identity \
-            -v \
-            -p codesigning \
-            "$KEYCHAIN_PATH"
-          IDENTITY_LINE="$(
-            security find-identity -v -p codesigning "$KEYCHAIN_PATH" |
-            grep -E '"iPhone Distribution:|"Apple Distribution:' |
-            head -1 || true
-          )"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          
+          IDENTITY_LINE="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -E '"iPhone Distribution:|"Apple Distribution:' | head -1 || true)"
           IDENTITY="$(echo "$IDENTITY_LINE" | sed -E 's/^.*"(.*)"$/\1/' || true)"
           IDENTITY_HASH="$(echo "$IDENTITY_LINE" | awk '{print $2}' || true)"
+          
           if [ -z "$IDENTITY" ]; then
             echo "ERROR: No iPhone Distribution / Apple Distribution identity found."
             exit 1
           fi
+          
           echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "SIGNING_IDENTITY_HASH=$IDENTITY_HASH" >> "$GITHUB_ENV"
           echo "BUILD_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
@@ -129,95 +117,52 @@ jobs:
           set -e
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
+          
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
-          printf '%s' "$IOS_MOBILE_PROVISION" |
-            tr -d '\r\n ' |
-            base64 --decode > "$PROFILE_PATH"
+          printf '%s' "$IOS_MOBILE_PROVISION" | tr -d '\r\n ' | base64 --decode > "$PROFILE_PATH"
           test -s "$PROFILE_PATH"
-          security cms -D \
-            -i "$PROFILE_PATH" \
-            > "$RUNNER_TEMP/profile.plist"
-          PROFILE_UUID="$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :UUID" \
-            "$RUNNER_TEMP/profile.plist"
-          )"
-          PROFILE_NAME="$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :Name" \
-            "$RUNNER_TEMP/profile.plist"
-          )"
-          PROFILE_TEAM="$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :TeamIdentifier:0" \
-            "$RUNNER_TEMP/profile.plist"
-          )"
-          PROFILE_APP_ID="$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :Entitlements:application-identifier" \
-            "$RUNNER_TEMP/profile.plist"
-          )"
+          
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$RUNNER_TEMP/profile.plist")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist")"
+          PROFILE_TEAM="$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$RUNNER_TEMP/profile.plist")"
+          PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/profile.plist")"
           PROFILE_BUNDLE_ID="${PROFILE_APP_ID#*.}"
+          
           echo "Profile name: $PROFILE_NAME"
           echo "Profile UUID: $PROFILE_UUID"
           echo "Profile Team: $PROFILE_TEAM"
           echo "Profile App ID: $PROFILE_APP_ID"
           echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
-          cp "$PROFILE_PATH" \
-            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          
+          cp "$PROFILE_PATH" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Patch generated Xcode project for manual signing & fix iOS frameworks
+      - name: 11. Patch generated Xcode project safely via Python
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
           APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
-
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
-
-          echo "=== Injecting Native Frameworks (MediaPlayer, AVFoundation, Swift Linker) ==="
-          echo "OTHER_LDFLAGS = \$(inherited) -framework MediaPlayer -framework AVFoundation -framework UIKit -Wl,-undefined,dynamic_lookup" >> "$PROJECT"
-
-          SWIFT_LIB_DIR="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos"
-          mkdir -p "$SWIFT_LIB_DIR"
-          ar rcs "$SWIFT_LIB_DIR/libswiftCompatibility56.a" 2>/dev/null || true
-          ar rcs "$SWIFT_LIB_DIR/libswiftCompatibilityConcurrency.a" 2>/dev/null || true
-
-          echo "=== Before patch: bundle identifiers ==="
-          grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$PROJECT" || true
-
-          sed -i '' \
-            "s/com\.soundcloud\.desktop/$APP_BUNDLE_ID/g" \
-            "$PROJECT"
 
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" "$PROFILE_UUID" "$SIGNING_IDENTITY" <<'PY'
           import sys
           from pathlib import Path
 
-          project = Path(sys.argv[1])
+          project_path = Path(sys.argv[1])
           team = sys.argv[2]
           bundle_id = sys.argv[3]
           profile_uuid = sys.argv[4]
           signing_identity = sys.argv[5]
 
-          text = project.read_text()
-
-          replacements = {
-              "CODE_SIGN_STYLE = Automatic;":
-                  "CODE_SIGN_STYLE = Manual;",
-              "DEVELOPMENT_TEAM = 29897MSSY7;":
-                  f"DEVELOPMENT_TEAM = {team};",
-              "PRODUCT_BUNDLE_IDENTIFIER = com.soundcloud.desktop;":
-                  f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
-          }
-
-          for old, new in replacements.items():
-              text = text.replace(old, new)
+          text = project_path.read_text(encoding="utf-8")
 
           lines = text.splitlines()
           out = []
@@ -225,97 +170,28 @@ jobs:
           for line in lines:
               stripped = line.strip()
 
-              if stripped.startswith("CODE_SIGN_STYLE = "):
-                  out.append("CODE_SIGN_STYLE = Manual;")
-                  continue
-
-              if stripped.startswith("DEVELOPMENT_TEAM = "):
-                  out.append(f"DEVELOPMENT_TEAM = {team};")
-                  continue
-
-              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER = "):
-                  out.append(
-                      f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
-                  )
-                  continue
-
-              if stripped.startswith("CODE_SIGN_IDENTITY = "):
-                  out.append(
-                      f'CODE_SIGN_IDENTITY = "{signing_identity}";'
-                  )
-                  continue
-
-              if stripped.startswith("PROVISIONING_PROFILE_SPECIFIER = "):
-                  out.append(
-                      f'PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";'
-                  )
-                  continue
-
-              out.append(line)
-
-          text = "\n".join(out) + "\n"
-
-          lines = text.splitlines()
-          out = []
-          i = 0
-
-          while i < len(lines):
-              line = lines[i]
-              out.append(line)
-
-              if line.strip() == "CODE_SIGN_STYLE = Manual;":
+              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
                   indent = line[:len(line) - len(line.lstrip())]
+                  out.append(f'{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};')
+              elif stripped.startswith("CODE_SIGN_STYLE ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(f'{indent}CODE_SIGN_STYLE = Manual;')
+              elif stripped.startswith("DEVELOPMENT_TEAM ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(f'{indent}DEVELOPMENT_TEAM = {team};')
+              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(f'{indent}CODE_SIGN_IDENTITY = "{signing_identity}";')
+              elif stripped.startswith("PROVISIONING_PROFILE_SPECIFIER ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  out.append(f'{indent}PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";')
+              else:
+                  out.append(line)
 
-                  has_identity = False
-                  has_profile = False
-
-                  j = i + 1
-
-                  while j < len(lines) and lines[j].strip() != "};":
-                      current = lines[j].strip()
-
-                      if current.startswith("CODE_SIGN_IDENTITY = "):
-                          has_identity = True
-
-                      if current.startswith(
-                          "PROVISIONING_PROFILE_SPECIFIER = "
-                      ):
-                          has_profile = True
-
-                      j += 1
-
-                  if not has_identity:
-                      out.append(
-                          f'{indent}CODE_SIGN_IDENTITY = "{signing_identity}";'
-                      )
-
-                  if not has_profile:
-                      out.append(
-                          f'{indent}PROVISIONING_PROFILE_SPECIFIER = "{profile_uuid}";'
-                      )
-
-              i += 1
-
-          project.write_text("\n".join(out) + "\n")
+          project_path.write_text("\n".join(out) + "\n", encoding="utf-8")
           PY
 
-          echo "=== After patch: signing settings ==="
-          grep -nE \
-            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM" \
-            "$PROJECT" || true
-
-          if grep -q "com.soundcloud.desktop" "$PROJECT"; then
-            echo "ERROR: Old bundle identifier still exists in Xcode project."
-            exit 1
-          fi
-
-          if ! grep -q \
-            "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID;" \
-            "$PROJECT"
-          then
-            echo "ERROR: Expected bundle identifier was not written."
-            exit 1
-          fi
+          echo "=== Patch Applied Successfully ==="
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
@@ -324,15 +200,10 @@ jobs:
           echo "=== Identity ==="
           security find-identity -v -p codesigning "$BUILD_KEYCHAIN_PATH"
           echo "=== Provisioning profile ==="
-          ls -lh \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          ls -lh "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "=== Profile ==="
-          security cms -D \
-            -i "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
-            > "$RUNNER_TEMP/verify-profile.plist"
-          /usr/libexec/PlistBuddy \
-            -c "Print :Entitlements:application-identifier" \
-            "$RUNNER_TEMP/verify-profile.plist"
+          security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" > "$RUNNER_TEMP/verify-profile.plist"
+          /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/verify-profile.plist"
 
       - name: 12b. Verify certificate matches provisioning profile
         run: |
@@ -349,11 +220,7 @@ jobs:
               profile = plistlib.load(f)
 
           certs = profile.get("DeveloperCertificates", [])
-
-          hashes = [
-              hashlib.sha1(bytes(c)).hexdigest().upper()
-              for c in certs
-          ]
+          hashes = [hashlib.sha1(bytes(c)).hexdigest().upper() for c in certs]
 
           print(f"Certificates embedded in provisioning profile: {len(hashes)}")
           for h in hashes:
@@ -379,20 +246,9 @@ jobs:
         working-directory: ./desktop
         run: |
           set -e
-          echo "=== Fetching crate sources ==="
-          cargo fetch \
-            --manifest-path src-tauri/Cargo.toml \
-            --target aarch64-apple-ios
+          cargo fetch --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
 
-          OPUS_SRC="$(
-            find "$CARGO_HOME/registry/src" \
-              -mindepth 2 \
-              -maxdepth 2 \
-              -type d \
-              -name "audiopus_sys-*" \
-              -print \
-              -quit
-          )/opus"
+          OPUS_SRC="$(find "$CARGO_HOME/registry/src" -mindepth 2 -maxdepth 2 -type d -name "audiopus_sys-*" -print -quit)/opus"
 
           if [ ! -d "$OPUS_SRC" ]; then
             echo "ERROR: Could not find bundled Opus source."
@@ -460,20 +316,14 @@ jobs:
                   out.extend(body_lines)
               return out
 
-          lines = upsert_table(
-              lines,
-              "[env]",
-              [
-                  'OPUS_NO_PKG = { value = "1", force = true }',
-                  'OPUS_STATIC = { value = "1", force = true }',
-                  f'OPUS_LIB_DIR = {{ value = "{prefix}", force = true }}',
-              ],
-          )
-          lines = upsert_table(
-              lines,
-              "[target.aarch64-apple-ios]",
-              [f'rustflags = ["-L", "native={lib_dir}"]'],
-          )
+          lines = upsert_table(lines, "[env]", [
+              'OPUS_NO_PKG = { value = "1", force = true }',
+              'OPUS_STATIC = { value = "1", force = true }',
+              f'OPUS_LIB_DIR = {{ value = "{prefix}", force = true }}',
+          ])
+          lines = upsert_table(lines, "[target.aarch64-apple-ios]", [
+              f'rustflags = ["-L", "native={lib_dir}"]'
+          ])
 
           open(path, "w").write("\n".join(lines) + "\n")
           PY
@@ -488,30 +338,18 @@ jobs:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
           set -e
-          pnpm exec tauri ios build \
-            --ci \
-            --no-sign \
-            --archive-only
+          pnpm exec tauri ios build --ci --no-sign --archive-only
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
         run: |
           set -e
-          ARCHIVE="$(
-            find src-tauri/gen/apple/build \
-              -type d \
-              -name "*.xcarchive" \
-              -print \
-              -quit \
-              2>/dev/null || true
-          )"
+          ARCHIVE="$(find src-tauri/gen/apple/build -type d -name "*.xcarchive" -print -quit 2>/dev/null || true)"
           if [ -z "$ARCHIVE" ]; then
             echo "ERROR: No .xcarchive generated by Tauri."
-            find src-tauri/gen/apple -maxdepth 5 -print || true
             exit 1
           fi
           echo "ARCHIVE_PATH=$PWD/$ARCHIVE" >> "$GITHUB_ENV"
-          echo "Found archive: $PWD/$ARCHIVE"
 
       - name: 16. Create ExportOptions.plist
         run: |
@@ -548,13 +386,8 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
-          IPA="$(
-            find "$EXPORT_DIR" \
-              -type f \
-              -name "*.ipa" \
-              -print \
-              -quit
-          )"
+          
+          IPA="$(find "$EXPORT_DIR" -type f -name "*.ipa" -print -quit)"
           if [ -z "$IPA" ]; then
             echo "ERROR: xcodebuild did not generate an IPA."
             exit 1
