@@ -285,7 +285,7 @@ jobs:
           lib_dir = f"{prefix}/lib"
 
           try:
-              lines = open(path).read().splitlines()
+              lines = open(path, encoding="utf-8").read().splitlines()
           except FileNotFoundError:
               lines = []
 
@@ -320,7 +320,8 @@ jobs:
               f'rustflags = ["-L", "native={lib_dir}"]'
           ])
 
-          open(path, "w").write("\n".join(lines) + "\n", encoding="utf-8")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write("\n".join(lines) + "\n")
           PY
 
           echo "OPUS_NO_PKG=1" >> "$GITHUB_ENV"
