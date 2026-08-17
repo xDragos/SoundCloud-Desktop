@@ -1,4 +1,4 @@
-Name: Build iOS IPA (Tauri Native - Manual Signing)
+name: Build iOS IPA (Tauri Native - Manual Signing)
 
 on:
   workflow_dispatch:
