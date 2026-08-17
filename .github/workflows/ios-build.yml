@@ -34,7 +34,7 @@ jobs:
         with:
           targets: aarch64-apple-ios
 
-      - name: 5b. Install autotools for Opus (audiopus_sys) build
+      - name: 5b. Install autotools for Opus
         run: |
           set -e
           brew install autoconf automake libtool
@@ -208,6 +208,16 @@ jobs:
           echo "Profile App ID: $PROFILE_APP_ID"
           echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
 
+          if [ "$PROFILE_TEAM" != "29897MSSY7" ]; then
+            echo "ERROR: Provisioning profile Team ID does not match expected team."
+            exit 1
+          fi
+
+          if [ "$PROFILE_BUNDLE_ID" != "app.star4684.aquila7560" ]; then
+            echo "ERROR: Provisioning profile Bundle ID does not match app."
+            exit 1
+          fi
+
           cp \
             "$PROFILE_PATH" \
             "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
@@ -218,125 +228,154 @@ jobs:
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
       - name: 11. Configure generated Xcode project
-
         working-directory: ./desktop
-
         env:
-
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
-
           APP_BUNDLE_ID: app.star4684.aquila7560
-
         run: |
-
           set -e
 
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
 
           test -f "$PROJECT"
 
+          cp "$PROJECT" "$RUNNER_TEMP/project.pbxproj.backup"
+
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
-
           import sys
-
           from pathlib import Path
 
-          path = Path(sys.argv[1])
-
+          project = Path(sys.argv[1])
           team = sys.argv[2]
-
           bundle_id = sys.argv[3]
 
-          text = path.read_text(encoding="utf-8")
-
-          replacements = {
-
-              "PRODUCT_BUNDLE_IDENTIFIER =": f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
-
-              "DEVELOPMENT_TEAM =": f"DEVELOPMENT_TEAM = {team};",
-
-              "CODE_SIGN_STYLE =": "CODE_SIGN_STYLE = Manual;",
-
-              "CODE_SIGNING_ALLOWED =": "CODE_SIGNING_ALLOWED = NO;",
-
-              "CODE_SIGNING_REQUIRED =": "CODE_SIGNING_REQUIRED = NO;",
-
-              "CODE_SIGN_IDENTITY =": 'CODE_SIGN_IDENTITY = "";',
-
-              "OTHER_LDFLAGS =": (
-
-                  'OTHER_LDFLAGS = "$(inherited) '
-
-                  '-ObjC '
-
-                  '-framework MediaPlayer '
-
-                  '-framework AVFoundation '
-
-                  '-framework CoreAudio '
-
-                  '-framework AudioToolbox";'
-
-              ),
-
-          }
+          text = project.read_text(encoding="utf-8")
 
           lines = text.splitlines()
-
           output = []
 
           for line in lines:
-
               stripped = line.strip()
 
-              replaced = False
+              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f"{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};"
+                  )
 
-              for key, value in replacements.items():
+              elif stripped.startswith("DEVELOPMENT_TEAM ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f"{indent}DEVELOPMENT_TEAM = {team};"
+                  )
 
-                  if stripped.startswith(key):
+              elif stripped.startswith("CODE_SIGN_STYLE ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f"{indent}CODE_SIGN_STYLE = Manual;"
+                  )
 
-                      indent = line[:len(line) - len(line.lstrip())]
+              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f"{indent}CODE_SIGNING_ALLOWED = NO;"
+                  )
 
-                      output.append(indent + value)
+              elif stripped.startswith("CODE_SIGNING_REQUIRED ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f"{indent}CODE_SIGNING_REQUIRED = NO;"
+                  )
 
-                      replaced = True
+              elif stripped.startswith("CODE_SIGN_IDENTITY ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(
+                      f'{indent}CODE_SIGN_IDENTITY = "";'
+                  )
 
-                      break
-
-              if not replaced:
-
+              else:
                   output.append(line)
 
-          path.write_text(
+          text = "\n".join(output) + "\n"
 
-              "\n".join(output) + "\n",
-
+          project.write_text(
+              text,
               encoding="utf-8"
-
           )
 
-          print("=== Xcode configuration applied ===")
-
+          print("=== Xcode project configured ===")
           print(f"Bundle ID: {bundle_id}")
-
           print(f"Development Team: {team}")
-
-          print("Manual signing configured")
-
-          print("MediaPlayer linked through OTHER_LDFLAGS")
-
+          print("Manual signing: enabled")
+          print("Archive signing: disabled")
           PY
 
           echo "=== Validating Xcode project ==="
 
           xcodebuild \
-
             -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
-
             -list
 
           echo "=== Xcode project is valid ==="
 
+      - name: 11b. Configure iOS linker flags in Xcode project
+        working-directory: ./desktop
+        run: |
+          set -e
+
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+
+          python3 - "$PROJECT" <<'PY'
+          import sys
+          import re
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          frameworks = (
+              "-framework MediaPlayer "
+              "-framework AVFoundation "
+              "-framework CoreAudio "
+              "-framework AudioToolbox"
+          )
+
+          replacement = (
+              'OTHER_LDFLAGS = "$(inherited) '
+              f'{frameworks}";'
+          )
+
+          lines = text.splitlines()
+          output = []
+          found = False
+
+          for line in lines:
+              if line.strip().startswith("OTHER_LDFLAGS ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  output.append(indent + replacement)
+                  found = True
+              else:
+                  output.append(line)
+
+          text = "\n".join(output) + "\n"
+
+          if not found:
+              print("No existing OTHER_LDFLAGS entry found.")
+              print("Using Tauri-generated linker configuration.")
+          else:
+              path.write_text(
+                  text,
+                  encoding="utf-8"
+              )
+              print("OTHER_LDFLAGS updated.")
+
+          PY
+
+          echo "=== Re-validating Xcode project ==="
+
+          xcodebuild \
+            -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
+            -list
 
       - name: 12. Verify Xcode signing inputs
         working-directory: ./desktop
@@ -401,17 +440,13 @@ jobs:
 
           if expected_hash not in hashes:
               print(
-                  "\nERROR: The imported IOS_CERTIFICATE is NOT "
-                  "among the certificates embedded in this "
-                  "provisioning profile."
+                  "ERROR: The imported IOS_CERTIFICATE is NOT "
+                  "embedded in this provisioning profile."
               )
               sys.exit(1)
 
-          print(
-              "OK: signing identity matches the provisioning profile."
-          )
+          print("OK: signing identity matches provisioning profile.")
           PY
-
 
       - name: 13. Ensure Tauri CLI 2.11
         working-directory: ./desktop
@@ -422,7 +457,7 @@ jobs:
 
           pnpm exec tauri --version
 
-      - name: 13b. Pre-build libopus for iOS (audiopus_sys can't cross-compile it)
+      - name: 13b. Pre-build libopus for iOS
         working-directory: ./desktop
         run: |
           set -e
@@ -431,7 +466,7 @@ jobs:
             --manifest-path src-tauri/Cargo.toml \
             --target aarch64-apple-ios
 
-          OPUS_SRC="$(
+          OPUS_PACKAGE="$(
             find "$CARGO_HOME/registry/src" \
               -mindepth 2 \
               -maxdepth 2 \
@@ -439,7 +474,9 @@ jobs:
               -name "audiopus_sys-*" \
               -print \
               -quit
-          )/opus"
+          )"
+
+          OPUS_SRC="$OPUS_PACKAGE/opus"
 
           if [ ! -d "$OPUS_SRC" ]; then
             echo "ERROR: Could not find bundled Opus source."
@@ -496,7 +533,9 @@ jobs:
           python3 - "$CARGO_CONFIG" "$OPUS_PREFIX" <<'PY'
           import sys
 
-          path, prefix = sys.argv[1], sys.argv[2]
+          path = sys.argv[1]
+          prefix = sys.argv[2]
+
           lib_dir = f"{prefix}/lib"
 
           try:
@@ -515,10 +554,12 @@ jobs:
               while i < len(lines):
                   line = lines[i]
 
-                  out.append(line)
-
                   if line.strip() == header:
-                      found = True
+                      if not found:
+                          out.append(line)
+                          out.extend(body_lines)
+                          found = True
+
                       i += 1
 
                       while (
@@ -527,13 +568,13 @@ jobs:
                       ):
                           i += 1
 
-                      out.extend(body_lines)
                       continue
 
+                  out.append(line)
                   i += 1
 
               if not found:
-                  if out and out[-1].strip() != "":
+                  if out and out[-1].strip():
                       out.append("")
 
                   out.append(header)
@@ -567,38 +608,25 @@ jobs:
           echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
           echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
 
-- name: 14. Build iOS archive with Tauri without signing
-
+      - name: 14. Build iOS archive with Tauri without signing
         working-directory: ./desktop
-
         env:
-
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
-
           OPUS_NO_PKG: "1"
-
           OPUS_STATIC: "1"
-
           OPUS_LIB_DIR: "${{ env.OPUS_LIB_DIR }}"
-
           CODE_SIGNING_ALLOWED: "NO"
-
           CODE_SIGNING_REQUIRED: "NO"
-
           CODE_SIGN_IDENTITY: ""
-
         run: |
-
           set -e
 
+          echo "=== Building iOS archive ==="
+
           pnpm exec tauri ios build \
-
             --ci \
-
             --no-sign \
-
             --archive-only
-
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
@@ -631,23 +659,23 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-          <key>method</key>
-          <string>app-store-connect</string>
+              <key>method</key>
+              <string>app-store-connect</string>
 
-          <key>signingStyle</key>
-          <string>manual</string>
+              <key>signingStyle</key>
+              <string>manual</string>
 
-          <key>teamID</key>
-          <string>${PROFILE_TEAM}</string>
+              <key>teamID</key>
+              <string>${PROFILE_TEAM}</string>
 
-          <key>provisioningProfiles</key>
-          <dict>
-          <key>${PROFILE_BUNDLE_ID}</key>
-          <string>${PROFILE_UUID}</string>
-          </dict>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${PROFILE_BUNDLE_ID}</key>
+                  <string>${PROFILE_UUID}</string>
+              </dict>
 
-          <key>signingCertificate</key>
-          <string>${SIGNING_IDENTITY}</string>
+              <key>signingCertificate</key>
+              <string>${SIGNING_IDENTITY}</string>
           </dict>
           </plist>
           EOF
