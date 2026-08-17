@@ -1,5 +1,7 @@
 //! System tray.
 //!
+//! Desktop-only: no tray/menu concept on iOS/Android.
+//!
 //! Linux: нативный StatusNotifierItem через `ksni` (D-Bus, без GTK) — работает и в
 //! wry, и в CEF-рантайме (CEF не инициализирует GTK, поэтому GTK-путь tray-icon/muda
 //! паниковал бы `GTK has not been initialized`).
@@ -9,6 +11,7 @@
 //! Колбэки трея могут приходить НЕ с main-потока (у ksni — задача D-Bus), а оконные
 //! операции Tauri обязаны идти с main-потока → действия гоним через
 //! `run_on_main_thread`.
+#![cfg(desktop)]
 
 use tauri::{Emitter, Manager};
 
