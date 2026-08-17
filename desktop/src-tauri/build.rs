@@ -7,8 +7,5 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AVFoundation");
         println!("cargo:rustc-link-lib=framework=CoreAudio");
         println!("cargo:rustc-link-lib=framework=AudioToolbox");
-        
-        // Asigură că simbolurile din librăria statică souvlaki nu sunt eliminate de dead-code elimination
-        println!("cargo:rustc-link-arg=-ObjC");
     }
 }
