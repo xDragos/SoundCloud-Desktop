@@ -42,6 +42,7 @@ jobs:
       - name: 6. Install dependencies
         working-directory: ./desktop
         run: |
+          set -e
           pnpm install --frozen-lockfile
 
       - name: 7. Initialize Tauri iOS
@@ -64,20 +65,41 @@ jobs:
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
         run: |
           set -e
+
           KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          
+
+          security create-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains \
+            -d user \
+            -s "$KEYCHAIN_PATH"
+
           CERT_PATH="$RUNNER_TEMP/signing_certificate.p12"
-          printf '%s' "$IOS_CERTIFICATE" | tr -d '\r\n ' | base64 --decode > "$CERT_PATH"
-          
+
+          printf '%s' "$IOS_CERTIFICATE" \
+            | tr -d '\r\n ' \
+            | base64 --decode > "$CERT_PATH"
+
           echo "=== Checking P12 ==="
-          openssl pkcs12 -in "$CERT_PATH" -noout -passin "pass:$IOS_CERTIFICATE_PASSWORD"
-          
+
+          openssl pkcs12 \
+            -in "$CERT_PATH" \
+            -noout \
+            -passin "pass:$IOS_CERTIFICATE_PASSWORD"
+
           echo "=== Importing P12 ==="
+
           security import "$CERT_PATH" \
             -k "$KEYCHAIN_PATH" \
             -P "$IOS_CERTIFICATE_PASSWORD" \
@@ -86,25 +108,47 @@ jobs:
             -T /usr/bin/security \
             -T /usr/bin/productbuild \
             -T /usr/bin/xcodebuild
-          
+
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
-          
+
           echo "=== Signing identities ==="
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-          
-          IDENTITY_LINE="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -E '"iPhone Distribution:|"Apple Distribution:' | head -1 || true)"
-          IDENTITY="$(echo "$IDENTITY_LINE" | sed -E 's/^.*"(.*)"$/\1/' || true)"
-          IDENTITY_HASH="$(echo "$IDENTITY_LINE" | awk '{print $2}' || true)"
-          
+
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$KEYCHAIN_PATH"
+
+          IDENTITY_LINE="$(
+            security find-identity \
+              -v \
+              -p codesigning \
+              "$KEYCHAIN_PATH" \
+              | grep -E '"iPhone Distribution:|"Apple Distribution:' \
+              | head -1 \
+              || true
+          )"
+
+          IDENTITY="$(
+            echo "$IDENTITY_LINE" \
+              | sed -E 's/^.*"(.*)"$/\1/' \
+              || true
+          )"
+
+          IDENTITY_HASH="$(
+            echo "$IDENTITY_LINE" \
+              | awk '{print $2}' \
+              || true
+          )"
+
           if [ -z "$IDENTITY" ]; then
             echo "ERROR: No iPhone Distribution / Apple Distribution identity found."
             exit 1
           fi
-          
+
           echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "SIGNING_IDENTITY_HASH=$IDENTITY_HASH" >> "$GITHUB_ENV"
           echo "BUILD_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
@@ -115,29 +159,59 @@ jobs:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
         run: |
           set -e
+
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          
+
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
-          printf '%s' "$IOS_MOBILE_PROVISION" | tr -d '\r\n ' | base64 --decode > "$PROFILE_PATH"
+
+          printf '%s' "$IOS_MOBILE_PROVISION" \
+            | tr -d '\r\n ' \
+            | base64 --decode > "$PROFILE_PATH"
+
           test -s "$PROFILE_PATH"
-          
-          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
-          
-          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$RUNNER_TEMP/profile.plist")"
-          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist")"
-          PROFILE_TEAM="$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$RUNNER_TEMP/profile.plist")"
-          PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/profile.plist")"
+
+          security cms \
+            -D \
+            -i "$PROFILE_PATH" \
+            > "$RUNNER_TEMP/profile.plist"
+
+          PROFILE_UUID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              "$RUNNER_TEMP/profile.plist"
+          )"
+
+          PROFILE_NAME="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              "$RUNNER_TEMP/profile.plist"
+          )"
+
+          PROFILE_TEAM="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :TeamIdentifier:0" \
+              "$RUNNER_TEMP/profile.plist"
+          )"
+
+          PROFILE_APP_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:application-identifier" \
+              "$RUNNER_TEMP/profile.plist"
+          )"
+
           PROFILE_BUNDLE_ID="${PROFILE_APP_ID#*.}"
-          
+
           echo "Profile name: $PROFILE_NAME"
           echo "Profile UUID: $PROFILE_UUID"
           echo "Profile Team: $PROFILE_TEAM"
           echo "Profile App ID: $PROFILE_APP_ID"
           echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
-          
-          cp "$PROFILE_PATH" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
-          
+
+          cp \
+            "$PROFILE_PATH" \
+            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
@@ -158,6 +232,7 @@ jobs:
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
           import sys
           import re
+          import hashlib
           from pathlib import Path
 
           project_path = Path(sys.argv[1])
@@ -167,7 +242,7 @@ jobs:
           text = project_path.read_text(encoding="utf-8")
 
           # ------------------------------------------------------------
-          # 1. Basic signing / bundle configuration
+          # 1. Patch build settings
           # ------------------------------------------------------------
 
           lines = text.splitlines()
@@ -214,14 +289,14 @@ jobs:
 
               elif "OTHER_LDFLAGS =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
+
                   out.append(
                       f'{indent}OTHER_LDFLAGS = "$(inherited) '
                       '-ObjC '
                       '-framework MediaPlayer '
                       '-framework AVFoundation '
                       '-framework CoreAudio '
-                      '-framework AudioToolbox '
-                      '-framework CoreAudioTypes";'
+                      '-framework AudioToolbox";'
                   )
 
               else:
@@ -230,12 +305,7 @@ jobs:
           text = "\n".join(out) + "\n"
 
           # ------------------------------------------------------------
-          # 2. Make sure the required iOS frameworks are explicitly
-          #    linked by the generated Xcode target.
-          #
-          #    Tauri/Souvlaki uses MediaPlayer for Now Playing metadata.
-          #    Without an actual PBXFileReference + PBXBuildFile entry,
-          #    OTHER_LDFLAGS alone may not be enough for the Rust target.
+          # 2. Frameworks required by Souvlaki / iOS media controls
           # ------------------------------------------------------------
 
           frameworks = [
@@ -243,12 +313,9 @@ jobs:
               "AVFoundation.framework",
               "CoreAudio.framework",
               "AudioToolbox.framework",
-              "CoreAudioTypes.framework",
           ]
 
-          # Generate deterministic 24-character PBX IDs.
           def pbx_id(name):
-              import hashlib
               return hashlib.sha1(
                   ("soundcloud-ios-" + name).encode("utf-8")
               ).hexdigest().upper()[:24]
@@ -262,27 +329,7 @@ jobs:
               }
 
           # ------------------------------------------------------------
-          # 3. Find PBXFrameworksBuildPhase sections.
-          # ------------------------------------------------------------
-
-          build_phase_pattern = re.compile(
-              r'([A-F0-9]{24}) /\* Frameworks \*/ = \{'
-              r'\s*isa = PBXFrameworksBuildPhase;'
-              r'(.*?)'
-              r'\n\s*\};',
-              re.DOTALL
-          )
-
-          build_phase_matches = list(
-              build_phase_pattern.finditer(text)
-          )
-
-          if not build_phase_matches:
-              print("ERROR: No PBXFrameworksBuildPhase found.")
-              sys.exit(1)
-
-          # ------------------------------------------------------------
-          # 4. Add PBXBuildFile entries.
+          # 3. PBXBuildFile
           # ------------------------------------------------------------
 
           build_file_marker = "/* Begin PBXBuildFile section */"
@@ -297,7 +344,6 @@ jobs:
               build_id = ids["build"]
               file_id = ids["file"]
 
-              # Avoid duplicates if Tauri already added the framework.
               if re.search(
                   rf'{re.escape(build_id)} /\* {re.escape(framework)} in Frameworks \*/',
                   text
@@ -305,7 +351,9 @@ jobs:
                   continue
 
               build_file_entries.append(
-                  f'\t\t{build_id} /* {framework} in Frameworks */ = {{isa = PBXBuildFile; fileRef = {file_id} /* {framework} */; }};'
+                  f'\t\t{build_id} /* {framework} in Frameworks */ = '
+                  f'{{isa = PBXBuildFile; '
+                  f'fileRef = {file_id} /* {framework} */; }};'
               )
 
           if build_file_entries:
@@ -318,7 +366,7 @@ jobs:
               )
 
           # ------------------------------------------------------------
-          # 5. Add PBXFileReference entries.
+          # 4. PBXFileReference
           # ------------------------------------------------------------
 
           file_ref_marker = "/* Begin PBXFileReference section */"
@@ -339,7 +387,12 @@ jobs:
                   continue
 
               file_ref_entries.append(
-                  f'\t\t{file_id} /* {framework} */ = {{isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = {framework}; path = System/Library/Frameworks/{framework}; sourceTree = SDKROOT; }};'
+                  f'\t\t{file_id} /* {framework} */ = '
+                  f'{{isa = PBXFileReference; '
+                  f'lastKnownFileType = wrapper.framework; '
+                  f'name = {framework}; '
+                  f'path = System/Library/Frameworks/{framework}; '
+                  f'sourceTree = SDKROOT; }};'
               )
 
           if file_ref_entries:
@@ -352,8 +405,24 @@ jobs:
               )
 
           # ------------------------------------------------------------
-          # 6. Add frameworks to every PBXFrameworksBuildPhase.
+          # 5. PBXFrameworksBuildPhase
           # ------------------------------------------------------------
+
+          build_phase_pattern = re.compile(
+              r'([A-F0-9]{24}) /\* Frameworks \*/ = \{'
+              r'\s*isa = PBXFrameworksBuildPhase;'
+              r'(.*?)'
+              r'\n\s*\};',
+              re.DOTALL
+          )
+
+          matches = list(
+              build_phase_pattern.finditer(text)
+          )
+
+          if not matches:
+              print("ERROR: No PBXFrameworksBuildPhase found.")
+              sys.exit(1)
 
           def patch_framework_phase(match):
               phase_id = match.group(1)
@@ -369,7 +438,8 @@ jobs:
                       continue
 
                   body += (
-                      f'\n\t\t\t\t{build_id} /* {framework} in Frameworks */,'
+                      f'\n\t\t\t\t'
+                      f'{build_id} /* {framework} in Frameworks */,'
                   )
 
               return (
@@ -385,7 +455,7 @@ jobs:
           )
 
           # ------------------------------------------------------------
-          # 7. Write patched project.
+          # 6. Write project
           # ------------------------------------------------------------
 
           project_path.write_text(
@@ -396,8 +466,8 @@ jobs:
           print("=== Patch Applied Successfully ===")
           print(f"Bundle ID: {bundle_id}")
           print(f"Development Team: {team}")
-          print("Code signing: disabled for archive stage")
-          print("Linked frameworks:")
+          print("Code signing: disabled during archive")
+          print("Frameworks linked:")
 
           for framework in frameworks:
               print(f"  - {framework}")
@@ -413,7 +483,6 @@ jobs:
           grep -n "AVFoundation.framework" "$PROJECT" || true
           grep -n "CoreAudio.framework" "$PROJECT" || true
           grep -n "AudioToolbox.framework" "$PROJECT" || true
-          grep -n "CoreAudioTypes.framework" "$PROJECT" || true
 
           echo "=== Xcode project patch complete ==="
 
@@ -421,18 +490,35 @@ jobs:
         working-directory: ./desktop
         run: |
           set -e
+
           echo "=== Identity ==="
-          security find-identity -v -p codesigning "$BUILD_KEYCHAIN_PATH"
+
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$BUILD_KEYCHAIN_PATH"
+
           echo "=== Provisioning profile ==="
-          ls -lh "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          ls -lh \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
           echo "=== Profile ==="
-          security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" > "$RUNNER_TEMP/verify-profile.plist"
-          /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/verify-profile.plist"
+
+          security cms \
+            -D \
+            -i "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
+            > "$RUNNER_TEMP/verify-profile.plist"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :Entitlements:application-identifier" \
+            "$RUNNER_TEMP/verify-profile.plist"
 
       - name: 12b. Verify certificate matches provisioning profile
         run: |
           set -e
-          python3 - "$RUNNER_TEMP/verify-profile.plist" "$SIGNING_IDENTITY_HASH" <<'PY'
+
+          python3 "$RUNNER_TEMP/verify-profile.plist" "$SIGNING_IDENTITY_HASH" <<'PY'
           import sys
           import plistlib
           import hashlib
@@ -444,50 +530,93 @@ jobs:
               profile = plistlib.load(f)
 
           certs = profile.get("DeveloperCertificates", [])
-          hashes = [hashlib.sha1(bytes(c)).hexdigest().upper() for c in certs]
 
-          print(f"Certificates embedded in provisioning profile: {len(hashes)}")
+          hashes = [
+              hashlib.sha1(bytes(c)).hexdigest().upper()
+              for c in certs
+          ]
+
+          print(
+              f"Certificates embedded in provisioning profile: {len(hashes)}"
+          )
+
           for h in hashes:
               print(f" - {h}")
 
-          print(f"Imported signing identity hash: {expected_hash}")
+          print(
+              f"Imported signing identity hash: {expected_hash}"
+          )
 
           if expected_hash not in hashes:
-              print("\nERROR: The imported IOS_CERTIFICATE is NOT among the certificates embedded in this provisioning profile.")
+              print(
+                  "\nERROR: The imported IOS_CERTIFICATE is NOT "
+                  "among the certificates embedded in this "
+                  "provisioning profile."
+              )
               sys.exit(1)
 
-          print("OK: signing identity matches the provisioning profile.")
+          print(
+              "OK: signing identity matches the provisioning profile."
+          )
           PY
 
       - name: 13. Ensure Tauri CLI 2.11
         working-directory: ./desktop
         run: |
           set -e
+
           pnpm add -D @tauri-apps/cli@2.11.0
+
           pnpm exec tauri --version
 
       - name: 13b. Pre-build libopus for iOS (audiopus_sys can't cross-compile it)
         working-directory: ./desktop
         run: |
           set -e
-          cargo fetch --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
 
-          OPUS_SRC="$(find "$CARGO_HOME/registry/src" -mindepth 2 -maxdepth 2 -type d -name "audiopus_sys-*" -print -quit)/opus"
+          cargo fetch \
+            --manifest-path src-tauri/Cargo.toml \
+            --target aarch64-apple-ios
+
+          OPUS_SRC="$(
+            find "$CARGO_HOME/registry/src" \
+              -mindepth 2 \
+              -maxdepth 2 \
+              -type d \
+              -name "audiopus_sys-*" \
+              -print \
+              -quit
+          )/opus"
 
           if [ ! -d "$OPUS_SRC" ]; then
             echo "ERROR: Could not find bundled Opus source."
             exit 1
           fi
 
-          IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-          IOS_CC="$(xcrun --sdk iphoneos --find clang)"
-          IOS_AR="$(xcrun --sdk iphoneos --find ar)"
-          IOS_RANLIB="$(xcrun --sdk iphoneos --find ranlib)"
+          IOS_SDK="$(
+            xcrun --sdk iphoneos --show-sdk-path
+          )"
+
+          IOS_CC="$(
+            xcrun --sdk iphoneos --find clang
+          )"
+
+          IOS_AR="$(
+            xcrun --sdk iphoneos --find ar
+          )"
+
+          IOS_RANLIB="$(
+            xcrun --sdk iphoneos --find ranlib
+          )"
+
           OPUS_PREFIX="$RUNNER_TEMP/opus-ios"
+
           IOS_FLAGS="-arch arm64 -isysroot $IOS_SDK -mios-version-min=13.0"
 
           pushd "$OPUS_SRC"
+
           ./autogen.sh
+
           ./configure \
             --host=aarch64-apple-darwin \
             --disable-shared \
@@ -500,11 +629,15 @@ jobs:
             RANLIB="$IOS_RANLIB" \
             CFLAGS="$IOS_FLAGS -O2" \
             LDFLAGS="$IOS_FLAGS"
+
           make -j"$(sysctl -n hw.ncpu)"
+
           make install
+
           popd
 
           CARGO_CONFIG="$CARGO_HOME/config.toml"
+
           mkdir -p "$CARGO_HOME"
 
           python3 - "$CARGO_CONFIG" "$OPUS_PREFIX" <<'PY'
@@ -514,7 +647,10 @@ jobs:
           lib_dir = f"{prefix}/lib"
 
           try:
-              lines = open(path, encoding="utf-8").read().splitlines()
+              lines = open(
+                  path,
+                  encoding="utf-8"
+              ).read().splitlines()
           except FileNotFoundError:
               lines = []
 
@@ -522,32 +658,53 @@ jobs:
               out = []
               i = 0
               found = False
+
               while i < len(lines):
                   line = lines[i]
+
                   out.append(line)
+
                   if line.strip() == header:
                       found = True
                       i += 1
-                      while i < len(lines) and not lines[i].strip().startswith("["):
+
+                      while (
+                          i < len(lines)
+                          and not lines[i].strip().startswith("[")
+                      ):
                           i += 1
+
                       out.extend(body_lines)
                       continue
+
                   i += 1
+
               if not found:
                   if out and out[-1].strip() != "":
                       out.append("")
+
                   out.append(header)
                   out.extend(body_lines)
+
               return out
 
-          lines = upsert_table(lines, "[env]", [
-              'OPUS_NO_PKG = { value = "1", force = true }',
-              'OPUS_STATIC = { value = "1", force = true }',
-              f'OPUS_LIB_DIR = {{ value = "{prefix}", force = true }}',
-          ])
-          lines = upsert_table(lines, "[target.aarch64-apple-ios]", [
-              f'rustflags = ["-L", "native={lib_dir}"]'
-          ])
+          lines = upsert_table(
+              lines,
+              "[env]",
+              [
+                  'OPUS_NO_PKG = { value = "1", force = true }',
+                  'OPUS_STATIC = { value = "1", force = true }',
+                  f'OPUS_LIB_DIR = {{ value = "{prefix}", force = true }}',
+              ]
+          )
+
+          lines = upsert_table(
+              lines,
+              "[target.aarch64-apple-ios]",
+              [
+                  f'rustflags = ["-L", "native={lib_dir}"]'
+              ]
+          )
 
           with open(path, "w", encoding="utf-8") as f:
               f.write("\n".join(lines) + "\n")
@@ -557,7 +714,7 @@ jobs:
           echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
           echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
 
-            - name: 14. Build iOS archive with Tauri without signing
+      - name: 14. Build iOS archive with Tauri without signing
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
@@ -569,24 +726,40 @@ jobs:
           CODE_SIGN_IDENTITY: ""
         run: |
           set -e
-          pnpm exec tauri ios build --ci --no-sign --archive-only -- \
-            OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox -framework CoreAudioTypes'
 
+          pnpm exec tauri ios build \
+            --ci \
+            --no-sign \
+            --archive-only \
+            -- \
+            OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox'
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
         run: |
           set -e
-          ARCHIVE="$(find src-tauri/gen/apple/build -type d -name "*.xcarchive" -print -quit 2>/dev/null || true)"
+
+          ARCHIVE="$(
+            find src-tauri/gen/apple/build \
+              -type d \
+              -name "*.xcarchive" \
+              -print \
+              -quit \
+              2>/dev/null \
+              || true
+          )"
+
           if [ -z "$ARCHIVE" ]; then
             echo "ERROR: No .xcarchive generated by Tauri."
             exit 1
           fi
+
           echo "ARCHIVE_PATH=$PWD/$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: 16. Create ExportOptions.plist
         run: |
           set -e
+
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -594,15 +767,19 @@ jobs:
           <dict>
           <key>method</key>
           <string>app-store-connect</string>
+
           <key>signingStyle</key>
           <string>manual</string>
+
           <key>teamID</key>
           <string>${PROFILE_TEAM}</string>
+
           <key>provisioningProfiles</key>
           <dict>
           <key>${PROFILE_BUNDLE_ID}</key>
           <string>${PROFILE_UUID}</string>
           </dict>
+
           <key>signingCertificate</key>
           <string>${SIGNING_IDENTITY}</string>
           </dict>
@@ -612,35 +789,60 @@ jobs:
       - name: 17. Export signed IPA with xcodebuild
         run: |
           set -e
+
           EXPORT_DIR="$GITHUB_WORKSPACE/artifacts/exported"
+
           mkdir -p "$EXPORT_DIR"
+
           xcodebuild \
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -keychainPath "$BUILD_KEYCHAIN_PATH"
-          
-          IPA="$(find "$EXPORT_DIR" -type f -name "*.ipa" -print -quit)"
+
+          IPA="$(
+            find "$EXPORT_DIR" \
+              -type f \
+              -name "*.ipa" \
+              -print \
+              -quit
+          )"
+
           if [ -z "$IPA" ]; then
             echo "ERROR: xcodebuild did not generate an IPA."
             exit 1
           fi
-          cp "$IPA" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
+
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          cp \
+            "$IPA" \
+            "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa"
+
           echo "IPA_PATH=$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.ipa" >> "$GITHUB_ENV"
 
       - name: 18. Verify IPA
         run: |
           set -e
+
           test -f "$IPA_PATH"
+
           ls -lh "$IPA_PATH"
-          unzip -l "$IPA_PATH" | grep -E '\.app/Info\.plist$|embedded\.mobileprovision$' || true
+
+          unzip -l "$IPA_PATH" \
+            | grep -E '\.app/Info\.plist$|embedded\.mobileprovision$' \
+            || true
 
       - name: 19. Copy archive
         run: |
           set -e
+
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          ditto "$ARCHIVE_PATH" "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.xcarchive"
+
+          ditto \
+            "$ARCHIVE_PATH" \
+            "$GITHUB_WORKSPACE/artifacts/SoundCloud-iOS.xcarchive"
 
       - name: 20. Upload IPA / archive
         if: always()
