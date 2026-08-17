@@ -164,6 +164,14 @@ jobs:
           lines = text.splitlines()
           out = []
 
+          frameworks = [
+    "MediaPlayer.framework",
+    "AVFoundation.framework",
+    "CoreAudio.framework",
+    "AudioToolbox.framework",
+    "CoreAudioTypes.framework",
+]
+
           for line in lines:
               stripped = line.strip()
 
@@ -180,8 +188,16 @@ jobs:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
               elif "OTHER_LDFLAGS =" in line:
-                  indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}OTHER_LDFLAGS = "$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox";')
+    indent = line[:len(line) - len(line.lstrip())]
+    out.append(
+        f'{indent}OTHER_LDFLAGS = "$(inherited) '
+        '-ObjC '
+        '-framework MediaPlayer '
+        '-framework AVFoundation '
+        '-framework CoreAudio '
+        '-framework AudioToolbox '
+        '-framework CoreAudioTypes";'
+    )
               else:
                   out.append(line)
 
