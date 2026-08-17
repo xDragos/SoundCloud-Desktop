@@ -336,9 +336,15 @@ jobs:
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
+          OPUS_NO_PKG: "1"
+          OPUS_STATIC: "1"
+          OPUS_LIB_DIR: "${{ env.OPUS_LIB_DIR }}"
         run: |
           set -e
-          pnpm exec tauri ios build --ci --no-sign --archive-only
+          pnpm exec tauri ios build --ci --no-sign --archive-only -- \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
       - name: 15. Find generated XCArchive
         working-directory: ./desktop
@@ -385,7 +391,8 @@ jobs:
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -keychainPath "$BUILD_KEYCHAIN_PATH"
           
           IPA="$(find "$EXPORT_DIR" -type f -name "*.ipa" -print -quit)"
           if [ -z "$IPA" ]; then
