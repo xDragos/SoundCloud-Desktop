@@ -45,13 +45,12 @@ jobs:
           set -e
           pnpm install --frozen-lockfile
 
-      - name: 7. Initialize Tauri iOS
+      - name: 7. Configure Tauri iOS
         working-directory: ./desktop
-        env:
-          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
         run: |
           set -e
-          pnpm exec tauri ios init
+          echo "Tauri iOS project will be initialized after iOS framework configuration."
+
 
       - name: 8. Build frontend
         working-directory: ./desktop
@@ -227,243 +226,57 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Configure generated Xcode project
+      - name: 11. Configure Tauri iOS frameworks
         working-directory: ./desktop
-        env:
-          APPLE_DEVELOPMENT_TEAM: 29897MSSY7
-          APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
 
-          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          TAURI_CONFIG="src-tauri/tauri.conf.json"
 
-          test -f "$PROJECT"
+          test -f "$TAURI_CONFIG"
 
-          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
+          python3 - "$TAURI_CONFIG" <<'PY'
+          import json
           import sys
-          import re
-          import hashlib
           from pathlib import Path
 
-          project = Path(sys.argv[1])
-          team = sys.argv[2]
-          bundle_id = sys.argv[3]
+          path = Path(sys.argv[1])
 
-          text = project.read_text(encoding="utf-8")
+          with path.open("r", encoding="utf-8") as f:
+              config = json.load(f)
 
-          # ------------------------------------------------------------
-          # Basic Xcode build settings
-          # ------------------------------------------------------------
+          bundle = config.setdefault("bundle", {})
+          ios = bundle.setdefault("iOS", {})
 
-          replacements = {
-              "PRODUCT_BUNDLE_IDENTIFIER": bundle_id,
-              "DEVELOPMENT_TEAM": team,
-              "CODE_SIGN_STYLE": "Manual",
-              "CODE_SIGNING_ALLOWED": "NO",
-              "CODE_SIGNING_REQUIRED": "NO",
-              "CODE_SIGN_IDENTITY": "",
-          }
+          ios["developmentTeam"] = "29897MSSY7"
+          ios["frameworks"] = [
+              "MediaPlayer",
+              "AVFoundation",
+              "CoreAudio",
+              "AudioToolbox"
+          ]
 
-          lines = text.splitlines()
-          output = []
-
-          for line in lines:
-              stripped = line.strip()
-              replaced = False
-
-              for key, value in replacements.items():
-                  if stripped.startswith(key + " ="):
-                      indent = line[:len(line) - len(line.lstrip())]
-
-                      if key in (
-                          "PRODUCT_BUNDLE_IDENTIFIER",
-                          "DEVELOPMENT_TEAM",
-                      ):
-                          output.append(
-                              f"{indent}{key} = {value};"
-                          )
-                      else:
-                          output.append(
-                              f'{indent}{key} = "{value}";'
-                              if key == "CODE_SIGN_IDENTITY"
-                              else f"{indent}{key} = {value};"
-                          )
-
-                      replaced = True
-                      break
-
-              if not replaced:
-                  output.append(line)
-
-          text = "\n".join(output) + "\n"
-
-          # ------------------------------------------------------------
-          # IMPORTANT:
-          # Do NOT link CoreAudioTypes.
-          #
-          # iOS does not provide CoreAudioTypes.framework as a normal
-          # linkable framework in the SDK used by the GitHub runner.
-          #
-          # Souvlaki requires MediaPlayer.framework.
-          # ------------------------------------------------------------
-
-          media_flags = (
-              'OTHER_LDFLAGS = "$(inherited) '
-              '-ObjC '
-              '-framework MediaPlayer '
-              '-framework AVFoundation '
-              '-framework CoreAudio '
-              '-framework AudioToolbox";'
-          )
-
-          lines = text.splitlines()
-          output = []
-
-          for line in lines:
-              if line.strip().startswith("OTHER_LDFLAGS ="):
-                  indent = line[:len(line) - len(line.lstrip())]
-                  output.append(indent + media_flags)
-              else:
-                  output.append(line)
-
-          text = "\n".join(output) + "\n"
-
-          # ------------------------------------------------------------
-          # Add MediaPlayer.framework directly to PBXFrameworksBuildPhase.
-          #
-          # This is the important part. OTHER_LDFLAGS alone is not
-          # sufficient for the Tauri Rust build in this configuration.
-          # ------------------------------------------------------------
-
-          def make_id(value):
-              return hashlib.sha1(
-                  value.encode("utf-8")
-              ).hexdigest().upper()[:24]
-
-          file_id = make_id(
-              "SoundCloud-Desktop-iOS-MediaPlayer-file"
-          )
-
-          build_id = make_id(
-              "SoundCloud-Desktop-iOS-MediaPlayer-build"
-          )
-
-          file_ref = (
-              f"{file_id} /* MediaPlayer.framework */"
-          )
-
-          build_ref = (
-              f"{build_id} /* MediaPlayer.framework in Frameworks */"
-          )
-
-          # ------------------------------------------------------------
-          # PBXFileReference
-          # ------------------------------------------------------------
-
-          if "MediaPlayer.framework" not in text:
-              marker = "/* Begin PBXFileReference section */"
-
-              entry = (
-                  f"\t\t{file_ref} = {{isa = PBXFileReference; "
-                  f"lastKnownFileType = wrapper.framework; "
-                  f"name = MediaPlayer.framework; "
-                  f"path = System/Library/Frameworks/MediaPlayer.framework; "
-                  f"sourceTree = SDKROOT; }};"
-              )
-
-              if marker not in text:
-                  raise SystemExit(
-                      "ERROR: PBXFileReference section not found."
-                  )
-
-              text = text.replace(
-                  marker,
-                  marker + "\n" + entry,
-                  1
-              )
-
-          # ------------------------------------------------------------
-          # PBXBuildFile
-          # ------------------------------------------------------------
-
-          if build_ref not in text:
-              marker = "/* Begin PBXBuildFile section */"
-
-              entry = (
-                  f"\t\t{build_ref} = {{isa = PBXBuildFile; "
-                  f"fileRef = {file_ref}; }};"
-              )
-
-              if marker not in text:
-                  raise SystemExit(
-                      "ERROR: PBXBuildFile section not found."
-                  )
-
-              text = text.replace(
-                  marker,
-                  marker + "\n" + entry,
-                  1
-              )
-
-          # ------------------------------------------------------------
-          # PBXFrameworksBuildPhase
-          #
-          # Only add MediaPlayer. Do not touch CoreAudioTypes.
-          # ------------------------------------------------------------
-
-          phase_pattern = re.compile(
-              r"([A-F0-9]{24}) /\* Frameworks \*/ = \{"
-              r"\n\s*isa = PBXFrameworksBuildPhase;"
-              r"(.*?)"
-              r"\n\s*\};",
-              re.DOTALL
-          )
-
-          matches = list(phase_pattern.finditer(text))
-
-          if not matches:
-              raise SystemExit(
-                  "ERROR: No PBXFrameworksBuildPhase found."
-              )
-
-          def patch_phase(match):
-              phase_id = match.group(1)
-              body = match.group(2)
-
-              if build_id not in body:
-                  body += (
-                      f"\n\t\t\t\t{build_ref},"
-                  )
-
-              return (
-                  f"{phase_id} /* Frameworks */ = {{"
-                  f"\n\t\t\tisa = PBXFrameworksBuildPhase;"
-                  f"{body}"
-                  f"\n\t\t}};"
-              )
-
-          text = phase_pattern.sub(
-              patch_phase,
-              text
-          )
-
-          project.write_text(
-              text,
+          path.write_text(
+              json.dumps(config, indent=2, ensure_ascii=False) + "\n",
               encoding="utf-8"
           )
 
-          print("=== Xcode configuration applied ===")
-          print(f"Bundle ID: {bundle_id}")
-          print(f"Development Team: {team}")
-          print("Code signing: disabled during archive")
-          print("Linked framework: MediaPlayer.framework")
-          print("Linked framework: AVFoundation.framework")
-          print("Linked framework: CoreAudio.framework")
-          print("Linked framework: AudioToolbox.framework")
-          print("NOT linked: CoreAudioTypes.framework")
+          print("=== Tauri iOS configuration ===")
+          print("Development Team: 29897MSSY7")
+          print("iOS frameworks:")
+          for framework in ios["frameworks"]:
+              print(f"  - {framework}")
+          print("CoreAudioTypes: NOT INCLUDED")
           PY
 
-          echo "=== Validating Xcode project ==="
+          echo "=== Recreating Tauri iOS project ==="
+
+          rm -rf src-tauri/gen/apple
+
+          APPLE_DEVELOPMENT_TEAM=29897MSSY7 \
+            pnpm exec tauri ios init
+
+          echo "=== Validating generated Xcode project ==="
 
           xcodebuild \
             -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
@@ -471,18 +284,32 @@ jobs:
 
           echo "=== Xcode project is valid ==="
 
-          echo "=== Checking MediaPlayer ==="
+          echo "=== Checking generated frameworks ==="
 
-          grep -n "MediaPlayer.framework" "$PROJECT" || true
+          grep -n "MediaPlayer.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
 
-          echo "=== Checking forbidden CoreAudioTypes ==="
+          grep -n "AVFoundation.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
 
-          if grep -n "CoreAudioTypes" "$PROJECT"; then
-            echo "ERROR: CoreAudioTypes.framework is still present."
-            exit 1
+          grep -n "CoreAudio.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          grep -n "AudioToolbox.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj" \
+            || true
+
+          if grep -q "CoreAudioTypes.framework" \
+            "src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"; then
+              echo "ERROR: CoreAudioTypes.framework was generated."
+              exit 1
           fi
 
           echo "=== Framework configuration complete ==="
+
 
       - name: 11b. Configure iOS linker flags in Xcode project
         working-directory: ./desktop
