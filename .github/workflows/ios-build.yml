@@ -217,35 +217,125 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Verify generated Xcode project
+      - name: 11. Configure generated Xcode project
+
         working-directory: ./desktop
+
         env:
+
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
+
           APP_BUNDLE_ID: app.star4684.aquila7560
+
         run: |
+
           set -e
 
-          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj"
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
 
-          test -d "$PROJECT"
-          test -f "$PROJECT/project.pbxproj"
+          test -f "$PROJECT"
 
-          echo "=== Validating generated Xcode project ==="
+          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
+
+          import sys
+
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+
+          team = sys.argv[2]
+
+          bundle_id = sys.argv[3]
+
+          text = path.read_text(encoding="utf-8")
+
+          replacements = {
+
+              "PRODUCT_BUNDLE_IDENTIFIER =": f"PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};",
+
+              "DEVELOPMENT_TEAM =": f"DEVELOPMENT_TEAM = {team};",
+
+              "CODE_SIGN_STYLE =": "CODE_SIGN_STYLE = Manual;",
+
+              "CODE_SIGNING_ALLOWED =": "CODE_SIGNING_ALLOWED = NO;",
+
+              "CODE_SIGNING_REQUIRED =": "CODE_SIGNING_REQUIRED = NO;",
+
+              "CODE_SIGN_IDENTITY =": 'CODE_SIGN_IDENTITY = "";',
+
+              "OTHER_LDFLAGS =": (
+
+                  'OTHER_LDFLAGS = "$(inherited) '
+
+                  '-ObjC '
+
+                  '-framework MediaPlayer '
+
+                  '-framework AVFoundation '
+
+                  '-framework CoreAudio '
+
+                  '-framework AudioToolbox";'
+
+              ),
+
+          }
+
+          lines = text.splitlines()
+
+          output = []
+
+          for line in lines:
+
+              stripped = line.strip()
+
+              replaced = False
+
+              for key, value in replacements.items():
+
+                  if stripped.startswith(key):
+
+                      indent = line[:len(line) - len(line.lstrip())]
+
+                      output.append(indent + value)
+
+                      replaced = True
+
+                      break
+
+              if not replaced:
+
+                  output.append(line)
+
+          path.write_text(
+
+              "\n".join(output) + "\n",
+
+              encoding="utf-8"
+
+          )
+
+          print("=== Xcode configuration applied ===")
+
+          print(f"Bundle ID: {bundle_id}")
+
+          print(f"Development Team: {team}")
+
+          print("Manual signing configured")
+
+          print("MediaPlayer linked through OTHER_LDFLAGS")
+
+          PY
+
+          echo "=== Validating Xcode project ==="
 
           xcodebuild \
-            -project "$PROJECT" \
+
+            -project "src-tauri/gen/apple/soundcloud-desktop.xcodeproj" \
+
             -list
 
-          echo "=== Generated Xcode project is valid ==="
-
-          echo "=== Project settings ==="
-
-          xcodebuild \
-            -project "$PROJECT" \
-            -showBuildSettings \
-            | grep -E \
-              'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE' \
-            || true
+          echo "=== Xcode project is valid ==="
 
 
       - name: 12. Verify Xcode signing inputs
@@ -477,30 +567,37 @@ jobs:
           echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
           echo "OPUS_LIB_DIR=$OPUS_PREFIX" >> "$GITHUB_ENV"
 
-      - name: 14. Build iOS archive with Tauri without signing
+- name: 14. Build iOS archive with Tauri without signing
+
         working-directory: ./desktop
+
         env:
+
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
+
           OPUS_NO_PKG: "1"
+
           OPUS_STATIC: "1"
+
           OPUS_LIB_DIR: "${{ env.OPUS_LIB_DIR }}"
+
           CODE_SIGNING_ALLOWED: "NO"
+
           CODE_SIGNING_REQUIRED: "NO"
+
           CODE_SIGN_IDENTITY: ""
+
         run: |
+
           set -e
 
           pnpm exec tauri ios build \
+
             --ci \
+
             --no-sign \
-            --archive-only \
-            -- \
-            PRODUCT_BUNDLE_IDENTIFIER=app.star4684.aquila7560 \
-            DEVELOPMENT_TEAM=29897MSSY7 \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            OTHER_LDFLAGS='$(inherited) -ObjC -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox'
+
+            --archive-only
 
 
       - name: 15. Find generated XCArchive
