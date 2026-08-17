@@ -19,14 +19,18 @@ use network::server::ServerState;
 pub fn run() {
     let builder = tauri::Builder::<rt::Rt>::new();
 
+    // `tauri_plugin_single_instance` relies on desktop-only OS primitives
+    // (a second-instance IPC/lock) and doesn't build for mobile targets.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+    }));
+
     builder
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
@@ -140,8 +144,14 @@ pub fn run() {
             audio::start_default_output_monitor(app.handle());
             audio::start_fft_thread(app.handle().clone(), analyser_buffer);
 
-            app.manage(app::popover::TrayState::default());
-            app::tray::setup_tray(app).expect("failed to setup tray");
+            // Tray icon + tray-anchored mini-player popover: both are desktop
+            // window-chrome concepts (system tray, frameless always-on-top
+            // window, decorations) with no iOS/Android equivalent.
+            #[cfg(desktop)]
+            {
+                app.manage(app::popover::TrayState::default());
+                app::tray::setup_tray(app).expect("failed to setup tray");
+            }
 
             let auth_state =
                 auth::SessionStore::init(data_dir.clone(), auth_http_client, rt_handle.clone());
@@ -160,6 +170,8 @@ pub fn run() {
             }
             // Transient popover (tray left-click) dismisses on blur; a pinned one
             // (opened from the "Mini player" menu) stays put — closed only by its ✕.
+            // Desktop-only: the popover window itself only exists on desktop.
+            #[cfg(desktop)]
             tauri::WindowEvent::Focused(false)
             if window.label() == app::popover::LABEL =>
                 {
