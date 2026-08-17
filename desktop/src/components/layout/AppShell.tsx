@@ -12,6 +12,7 @@ import {toggleWindowFullscreen} from '../../lib/window';
 import {useLyricsStore} from '../../stores/lyrics';
 import {usePlayerStore} from '../../stores/player';
 import {useSettingsStore} from '../../stores/settings';
+import {MobileNav} from './MobileNav';
 import {NowPlayingBar} from './NowPlayingBar';
 import {Sidebar} from './Sidebar';
 import {Titlebar} from './Titlebar';
@@ -443,13 +444,17 @@ export const AppShell = React.memo(() => {
       <AmbientGlow />
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
-        <Sidebar />
-          {/* pb clears the floating now-playing dock, which overlays (doesn't push) content */}
-          <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-[136px]">
+        <div className="hidden md:flex shrink-0">
+          <Sidebar />
+        </div>
+          {/* pb clears the floating now-playing dock, which overlays (doesn't push)
+          content; extra phone-width padding also clears the fixed MobileNav bar. */}
+          <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-[136px] max-md:pb-[190px]">
           <StableOutlet />
         </main>
       </div>
       <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
+      <MobileNav />
       {queueOpen && (
         <Suspense fallback={null}>
           <QueuePanel open={queueOpen} onClose={onQueueClose} />
