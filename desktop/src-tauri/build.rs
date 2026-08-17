@@ -1,7 +1,8 @@
 fn main() {
     tauri_build::build();
 
-    let target = std::env::var("TARGET").unwrap_default();
+    // Schimbat din unwrap_default() în unwrap_or_default()
+    let target = std::env::var("TARGET").unwrap_or_default(); 
     if target.contains("apple-ios") {
         println!("cargo:rustc-link-lib=framework=MediaPlayer");
         println!("cargo:rustc-link-lib=framework=AVFoundation");
