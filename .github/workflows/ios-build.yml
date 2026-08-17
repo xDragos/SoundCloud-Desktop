@@ -1,11 +1,11 @@
-name: Build iOS IPA (Tauri Native - Manual Signing)
+Name: Build iOS IPA (Tauri Native - Manual Signing)
 
 on:
   workflow_dispatch:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: 1. Checkout
@@ -25,9 +25,9 @@ jobs:
           node-version: 22
 
       - name: 4. Install pnpm
-        run: |
-          npm install -g pnpm@10.34.5
-          pnpm --version
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.34.5
 
       - name: 5. Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -173,7 +173,7 @@ jobs:
                   out.append(f'{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};')
               elif stripped.startswith("CODE_SIGN_STYLE ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  out.append(f'{indent}CODE_SIGN_STYLE = Automatic;')
+                  out.append(f'{indent}CODE_SIGN_STYLE = Manual;')
               elif stripped.startswith("DEVELOPMENT_TEAM ="):
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}DEVELOPMENT_TEAM = {team};')
@@ -182,8 +182,7 @@ jobs:
                   out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
               elif stripped.startswith("OTHER_LDFLAGS ="):
                   indent = line[:len(line) - len(line.lstrip())]
-                  # Includem MediaPlayer.framework si librariile de Swift pentru sa rezolva Undefined Symbols
-                  out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation", "-L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos");')
+                  out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation");')
               else:
                   out.append(line)
 
