@@ -143,15 +143,27 @@ jobs:
           echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
           echo "PROFILE_BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
 
-      - name: 11. Patch generated Xcode project safely via Python
+      - name: 11. Patch generated Xcode project safely via XCConfig & Python
         working-directory: ./desktop
         env:
           APPLE_DEVELOPMENT_TEAM: 29897MSSY7
           APP_BUNDLE_ID: app.star4684.aquila7560
         run: |
           set -e
-          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          XCCONFIG_PATH="src-tauri/gen/apple/build.xcconfig"
+          
+          # 1. Cream un fisier custom xcconfig cu toate flag-urile si framework-urile necesare
+          cat <<EOF > "$XCCONFIG_PATH"
+          PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID
+          DEVELOPMENT_TEAM = $APPLE_DEVELOPMENT_TEAM
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGNING_ALLOWED = NO
+          OTHER_LDFLAGS = \$(inherited) -framework MediaPlayer -framework AVFoundation -framework CoreAudio -framework AudioToolbox
+          EOF
 
+          # 2. Injectam include-ul acestui xcconfig in proiectul Xcode
+          PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
+          
           python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
           import sys
           from pathlib import Path
@@ -167,19 +179,20 @@ jobs:
           for line in lines:
               stripped = line.strip()
 
-              if stripped.startswith("PRODUCT_BUNDLE_IDENTIFIER ="):
+              # Modificam toata structura pbxproj indiferent de blocul de build (Debug/Release)
+              if "PRODUCT_BUNDLE_IDENTIFIER =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}PRODUCT_BUNDLE_IDENTIFIER = {bundle_id};')
-              elif stripped.startswith("CODE_SIGN_STYLE ="):
+              elif "CODE_SIGN_STYLE =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}CODE_SIGN_STYLE = Manual;')
-              elif stripped.startswith("DEVELOPMENT_TEAM ="):
+              elif "DEVELOPMENT_TEAM =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}DEVELOPMENT_TEAM = {team};')
-              elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
+              elif "CODE_SIGNING_ALLOWED =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
-              elif stripped.startswith("OTHER_LDFLAGS ="):
+              elif "OTHER_LDFLAGS =" in line:
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation", "-framework", "CoreAudio", "-framework", "AudioToolbox");')
               else:
@@ -341,9 +354,11 @@ jobs:
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
+          XCODE_XCCONFIG_FILE: "$GITHUB_WORKSPACE/desktop/src-tauri/gen/apple/build.xcconfig"
         run: |
           set -e
           pnpm exec tauri ios build --ci --no-sign --archive-only
+
 
 
       - name: 15. Find generated XCArchive
