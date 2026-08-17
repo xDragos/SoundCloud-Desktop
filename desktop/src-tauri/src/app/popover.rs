@@ -5,6 +5,10 @@
 //! debounces the hide-then-click race so a re-click never reopens what just closed.
 //! Linux (appindicator) emits no left-click — the "Mini player" menu opens it in a
 //! screen corner instead.
+//!
+//! Desktop-only: frameless/always-on-top/decorations are desktop window-chrome
+//! concepts with no iOS/Android equivalent, and there's no tray to anchor to there.
+#![cfg(desktop)]
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
