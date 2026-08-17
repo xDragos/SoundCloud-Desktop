@@ -152,7 +152,7 @@ jobs:
           set -e
           PROJECT="src-tauri/gen/apple/soundcloud-desktop.xcodeproj/project.pbxproj"
 
-          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" "$PROFILE_UUID" "$SIGNING_IDENTITY" <<'PY'
+          python3 - "$PROJECT" "$APPLE_DEVELOPMENT_TEAM" "$APP_BUNDLE_ID" <<'PY'
           import sys
           from pathlib import Path
 
@@ -180,6 +180,10 @@ jobs:
               elif stripped.startswith("CODE_SIGNING_ALLOWED ="):
                   indent = line[:len(line) - len(line.lstrip())]
                   out.append(f'{indent}CODE_SIGNING_ALLOWED = NO;')
+              elif stripped.startswith("OTHER_LDFLAGS ="):
+                  indent = line[:len(line) - len(line.lstrip())]
+                  # Includem MediaPlayer.framework si librariile de Swift pentru sa rezolva Undefined Symbols
+                  out.append(f'{indent}OTHER_LDFLAGS = ("$(inherited)", "-framework", "MediaPlayer", "-framework", "AVFoundation", "-L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos");')
               else:
                   out.append(line)
 
@@ -338,6 +342,7 @@ jobs:
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
+          RUSTFLAGS: "-L native=${{ env.OPUS_LIB_DIR }}/lib -l framework=MediaPlayer -l framework=AVFoundation"
         run: |
           set -e
           pnpm exec tauri ios build --ci --no-sign --archive-only
