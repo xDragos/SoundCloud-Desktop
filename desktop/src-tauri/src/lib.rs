@@ -140,6 +140,16 @@ pub fn run() {
             let analyser_buffer = audio_state.analyser_buffer.clone();
             app.manage(audio_state);
             audio::start_tick_emitter(app.handle());
+            // souvlaki's iOS backend sends a malformed dictionary to
+            // MPNowPlayingInfoCenter, which raises an Objective-C exception
+            // (SIGABRT, "Instruction Abort" in -[MRNowPlayingPlayerClient
+            // nowPlayingInfo]) as soon as this thread starts and metadata is
+            // pushed. Disabled on iOS until lockscreen/Control Center controls
+            // are implemented natively. state.media_tx stays None on iOS, and
+            // every audio_set_metadata / audio_set_playback_state /
+            // audio_set_media_position call already no-ops safely on None
+            // (see track_cache... — audio::engine's `if let Some(tx) = ...`).
+            #[cfg(not(target_os = "ios"))]
             audio::start_media_controls(app.handle());
             audio::start_default_output_monitor(app.handle());
             audio::start_fft_thread(app.handle().clone(), analyser_buffer);
