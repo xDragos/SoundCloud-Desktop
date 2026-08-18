@@ -40,15 +40,7 @@ export interface NewsItem {
  * All news items, newest first.
  * Add new entries at the top. Once irrelevant, remove them.
  */
-export const NEWS: NewsItem[] = [
-  {
-    id: 'discord-server-2025-04',
-    titleKey: 'news.discord.title',
-    descriptionKey: 'news.discord.description',
-    bodyKey: 'news.discord.body',
-    accent: 'sky',
-  },
-];
+export const NEWS: NewsItem[] = [];
 
 let _staticPort: number | null = null;
 let _proxyPort: number | null = null;
