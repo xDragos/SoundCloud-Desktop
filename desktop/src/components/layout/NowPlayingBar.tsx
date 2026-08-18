@@ -57,8 +57,10 @@ import {ArtistNameLinks} from '../music/ArtistNameLinks';
 import {EqualizerPanel} from '../music/EqualizerPanel';
 import {UploadKindDot} from '../music/UploadKindDot';
 
-/* ── Track loading progress ──────────────── */
+/* ── Track loading progress (SC → SCD download) ──────────────── */
 
+/** Smoothed download-progress value (0-1) for display, or null when not loading.
+ *  Holds briefly after completion so a finished load doesn't flicker away. */
 function useLoadProgress(): number | null {
   const downloadProgress = useSyncExternalStore(subscribe, getDownloadProgress);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,13 +99,16 @@ function useLoadProgress(): number | null {
   return visibleProgress;
 }
 
+/** Whole percentage (1-100) shown to the user while a track loads. */
 const loadPercent = (progress: number) =>
   Math.max(1, Math.min(100, Math.round(Math.max(0, Math.min(1, progress)) * 100)));
 
+/** Accent outline that traces the capsule's perimeter as the track downloads. */
 const DockLoadingRing = React.memo(({ progress }: { progress: number | null }) => {
   if (progress == null) return null;
   return (
     <svg className="npb-loadring" aria-hidden="true">
+      {/* width/height/rx attrs are a fallback; CSS refines the 1px inset when supported */}
       <rect className="npb-loadring-track" width="100%" height="100%" rx={28} />
       <rect
         className="npb-loadring-fill"
@@ -117,7 +122,7 @@ const DockLoadingRing = React.memo(({ progress }: { progress: number | null }) =
   );
 });
 
-/* ── A-B loop overlay ────────────────────────── */
+/* ── A-B loop markers (overlay on the progress track) ────────── */
 
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 const handleClass =
@@ -141,15 +146,20 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
   const bPct = b != null ? clampPct((b / duration) * 100) : null;
 
   const startDrag = (which: 'a' | 'b') => (e: React.PointerEvent<HTMLSpanElement>) => {
+    // Keep Radix from treating this as a seek-on-the-track gesture.
     e.preventDefault();
     e.stopPropagation();
     const root = e.currentTarget.offsetParent as HTMLElement | null;
     if (!root) return;
     const rect = root.getBoundingClientRect();
     if (rect.width <= 0) return;
+    // Drive the overlay via direct DOM writes during the drag and commit to the store
+    // (which pushes once to Rust) only on release — avoids per-frame JS↔Rust bridge spam.
     const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
     const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
     let latest = which === 'a' ? a : (b ?? a);
+    // Time bubble above the dragged handle — driven by direct DOM writes like the
+    // handle itself, so the per-frame drag stays React-render-free.
     const showTip = (timeSec: number, pct: number) => {
       const tip = tipRef.current;
       if (!tip) return;
@@ -218,10 +228,11 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
   );
 });
 
-/* ── Progress Slider ─────────────────────────── */
+/* ── Progress Slider ─────────────────────────────────────────── */
 
 export const ProgressSlider = React.memo(() => {
   const duration = useSyncExternalStore(subscribe, getDuration);
+
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState(0);
   const [syncedValue, setSyncedValue] = useState(0);
@@ -230,6 +241,7 @@ export const ProgressSlider = React.memo(() => {
   const rangeRef = useRef<HTMLSpanElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
 
+  // Direct DOM updates at 60fps — zero React re-renders
   useEffect(() => {
     return subscribe(() => {
       if (draggingRef.current) return;
@@ -243,6 +255,9 @@ export const ProgressSlider = React.memo(() => {
   }, []);
 
   const displayValue = dragging ? dragValue : syncedValue;
+
+  // Safety net: if Radix onValueCommit doesn't fire (pointer leaves window, fast flick),
+  // reset dragging state on any pointerup so the progress bar doesn't freeze.
   const pendingCommitRef = useRef<number | null>(null);
 
   const onValueChange = useCallback(([v]: number[]) => {
@@ -255,6 +270,7 @@ export const ProgressSlider = React.memo(() => {
       const resetDrag = () => {
         window.removeEventListener('pointerup', resetDrag);
         window.removeEventListener('pointercancel', resetDrag);
+        // Give Radix a frame to fire onValueCommit first
         requestAnimationFrame(() => {
           if (draggingRef.current) {
             const val = pendingCommitRef.current;
@@ -302,26 +318,7 @@ export const ProgressSlider = React.memo(() => {
   );
 });
 
-/* ── Progress Time ───────────────────────────── */
-
-export const ProgressTime = React.memo(() => {
-  const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
-  const duration = useSyncExternalStore(subscribe, getDuration);
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-white/50 tabular-nums font-medium">
-        {formatTime(currentSecond)}
-      </span>
-      <span className="text-[11px] text-white/20">/</span>
-      <span className="text-[11px] text-white/30 tabular-nums font-medium">
-        {formatTime(duration)}
-      </span>
-    </div>
-  );
-});
-
-/* ── Volume Slider ───────────────────────────── */
+/* ── Volume Slider ───────────────────────────────────────────── */
 
 export const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => {
   const { volume, setVolume } = usePlayerStore(
@@ -338,6 +335,7 @@ export const VolumeSlider = React.memo(({ className = '' }: { className?: string
         step={1}
         onValueChange={([v]) => setVolume(v)}
         onKeyDown={(e) => {
+          // Prevent slider from handling arrows itself, otherwise it stacks with global hotkeys.
           if (
             e.key === 'ArrowLeft' ||
             e.key === 'ArrowRight' ||
@@ -361,6 +359,7 @@ export const VolumeSlider = React.memo(({ className = '' }: { className?: string
           className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-amber-400' : 'bg-white'}`}
         />
       </Slider.Root>
+      {/* 100% tick mark (visual only, outside Slider tree) */}
       <div
         className="absolute top-1/2 -translate-y-1/2 h-[3px] w-px bg-white/20 pointer-events-none"
         style={{ left: '50%' }}
@@ -368,6 +367,8 @@ export const VolumeSlider = React.memo(({ className = '' }: { className?: string
     </div>
   );
 });
+
+/* ── Volume button ───────────────────────────────────────────── */
 
 export const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 'sm' }) => {
   const { volume, volumeBeforeMute, setVolume } = usePlayerStore(
@@ -377,13 +378,13 @@ export const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'defa
       setVolume: s.setVolume,
     })),
   );
-  const s = size === 'sm' ? 'w-8 h-8' : 'w-9 h-9';
+  const s = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
   return (
     <button
       type="button"
       onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
-      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.08] ${
-        volume === 0 ? 'text-accent' : 'text-white/60 hover:text-white'
+      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
+        volume === 0 ? 'text-accent' : 'text-white/40 hover:text-white/70'
       }`}
     >
       {volume === 0 ? volumeXIcon16 : volume < 50 ? volume1Icon16 : volume2Icon16}
@@ -391,14 +392,35 @@ export const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'defa
   );
 });
 
+/* ── Volume % label ──────────────────────────────────────────── */
+
 export const VolumeLabel = React.memo(() => {
   const volume = usePlayerStore((s) => s.volume);
   return (
     <span
-      className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-amber-400/70' : 'text-white/40'}`}
+      className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-amber-400/70' : 'text-white/30'}`}
     >
       {volume}%
     </span>
+  );
+});
+
+/* ── Progress Time (updates once per second) ─────────────────── */
+
+export const ProgressTime = React.memo(() => {
+  const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
+  const duration = useSyncExternalStore(subscribe, getDuration);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-white/50 tabular-nums font-medium">
+        {formatTime(currentSecond)}
+      </span>
+      <span className="text-[11px] text-white/20">/</span>
+      <span className="text-[11px] text-white/30 tabular-nums font-medium">
+        {formatTime(duration)}
+      </span>
+    </div>
   );
 });
 
@@ -436,7 +458,7 @@ const PlaybackQualityBadge = React.memo(() => {
   );
 });
 
-/* ── Like / Dislike ──────────────────────────── */
+/* ── Like / Dislike buttons ──────────────────────────────────── */
 
 function useTrackReactions(trackUrn: string) {
   const { data: trackData } = useQuery({
@@ -497,8 +519,8 @@ function LikeButton({
       type="button"
       onClick={toggle}
       title={t('track.likes')}
-      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.08] ${
-        isLiked ? 'text-accent' : 'text-white/60 hover:text-white'
+      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
+        isLiked ? 'text-accent' : 'text-white/30 hover:text-white/60'
       }`}
     >
       <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
@@ -541,8 +563,8 @@ export function NowBarDislikeButton({
       type="button"
       onClick={toggle}
       title={disliked ? t('track.removeDislike') : t('track.dislike')}
-      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.08] ${
-        disliked ? 'text-rose-400' : 'text-white/60 hover:text-white'
+      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
+        disliked ? 'text-rose-400' : 'text-white/30 hover:text-white/60'
       }`}
     >
       <ThumbsDown size={16} fill={disliked ? 'currentColor' : 'none'} />
@@ -550,11 +572,11 @@ export function NowBarDislikeButton({
   );
 }
 
-/* ── Control Buttons ─────────────────────────── */
+/* ── Isolated control buttons ────────────────────────────────── */
 
-const btnClass = (active: boolean, size: 'default' | 'sm' = 'default') =>
-  `${size === 'sm' ? 'w-8 h-8' : 'w-9 h-9'} rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.1] hover:-translate-y-px active:scale-90 ${
-    active ? 'text-accent' : 'text-white/70 hover:text-white'
+const btnClass = (active: boolean, size: 'default' | 'sm') =>
+  `${size === 'sm' ? 'w-[30px] h-[30px]' : 'w-9 h-9'} rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.08] hover:-translate-y-px active:scale-90 ${
+    active ? 'text-accent' : 'text-white/55 hover:text-white'
   }`;
 
 const PlayPauseBtn = React.memo(() => {
@@ -577,36 +599,23 @@ const ShuffleBtn = React.memo(() => {
   const shuffle = usePlayerStore((s) => s.shuffle);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   return (
-    <button
-      type="button"
-      onClick={toggleShuffle}
-      className={`absolute inset-0 m-auto flex h-7 w-7 items-center justify-center rounded-full bg-black/60 backdrop-blur-md transition-all hover:scale-110 active:scale-95 ${
-        shuffle ? 'text-accent' : 'text-white/80'
-      }`}
-    >
+    <button type="button" onClick={toggleShuffle} className={btnClass(shuffle, 'sm')}>
       {shuffleIcon16}
     </button>
   );
 });
 
-const RepeatBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
+const RepeatBtn = React.memo(() => {
   const repeat = usePlayerStore((s) => s.repeat);
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
   return (
-    <button
-      type="button"
-      onClick={() => {
-        toggleRepeat();
-        if (onClick) onClick();
-      }}
-      className={btnClass(repeat !== 'off', 'sm')}
-    >
+    <button type="button" onClick={toggleRepeat} className={btnClass(repeat !== 'off', 'sm')}>
       {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
     </button>
   );
 });
 
-const AbLoopBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
+const AbLoopBtn = React.memo(() => {
   const { t } = useTranslation();
   const abLoop = usePlayerStore((s) => s.abLoop);
   const cycleAbPoint = usePlayerStore((s) => s.cycleAbPoint);
@@ -623,14 +632,11 @@ const AbLoopBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
       type="button"
       title={title}
       aria-label={title}
-      onClick={() => {
-        cycleAbPoint(getCurrentTime());
-        if (onClick) onClick();
-      }}
-      className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-90 ${
+      onClick={() => cycleAbPoint(getCurrentTime())}
+      className={`relative w-[30px] h-[30px] rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-90 ${
         active
           ? 'text-accent bg-accent/15 shadow-[0_0_14px_-4px_var(--color-accent-glow)]'
-          : 'text-white/70 hover:text-white hover:bg-white/[0.1] hover:-translate-y-px'
+          : 'text-white/55 hover:text-white hover:bg-white/[0.08] hover:-translate-y-px'
       }`}
     >
       {repeatAbIcon16}
@@ -662,7 +668,7 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
   </button>
 ));
 
-const LyricsBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
+const LyricsBtn = React.memo(() => {
   const open = useLyricsStore((s) => s.open);
   const closePanel = useLyricsStore((s) => s.close);
   const openPanel = useLyricsStore((s) => s.openPanel);
@@ -672,7 +678,6 @@ const LyricsBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
       onClick={() => {
         if (open) closePanel();
         else openPanel({ tab: 'lyrics', rightPanelOpen: true });
-        if (onClick) onClick();
       }}
       className={btnClass(open, 'sm')}
     >
@@ -681,18 +686,18 @@ const LyricsBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   );
 });
 
-const EqBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
+const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   return (
     <EqualizerPanel>
-      <button type="button" onClick={onClick} className={btnClass(eqEnabled, 'sm')}>
+      <button type="button" className={btnClass(eqEnabled, 'sm')}>
         {audioLines16}
       </button>
     </EqualizerPanel>
   );
 });
 
-/* ── Speed & Pitch controls ───────────────────── */
+/* ── Playback rate (speed) slider ─────────────────────────────── */
 
 const formatPlaybackRate = (rate: number) =>
   `${rate
@@ -708,9 +713,9 @@ export const PlaybackRateSlider = React.memo(() => {
   const isDefault = Math.abs(playbackRate - 1) < 0.001;
 
   return (
-    <div className="rounded-[14px] border border-white/[0.08] bg-white/[0.03] px-3 py-2">
-      <div className="mb-1.5 flex items-center justify-between gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/50">
+    <div className="rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
           {t('player.playbackSpeed')}
         </span>
         <button
@@ -727,7 +732,7 @@ export const PlaybackRateSlider = React.memo(() => {
         </button>
       </div>
       <Slider.Root
-        className="group/rate relative flex h-4 w-full cursor-pointer select-none touch-none items-center"
+        className="group/rate relative flex h-5 w-full cursor-pointer select-none touch-none items-center"
         aria-label={t('player.playbackSpeed')}
         value={[playbackRate]}
         min={PLAYBACK_RATE_MIN}
@@ -744,6 +749,15 @@ export const PlaybackRateSlider = React.memo(() => {
         </Slider.Track>
         <Slider.Thumb className="block h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] outline-none transition-all duration-150 scale-0 opacity-0 group-hover/rate:scale-100 group-hover/rate:opacity-100" />
       </Slider.Root>
+      {/* 1.00x tick mark */}
+      <div className="relative mt-1 h-2 w-full pointer-events-none">
+        <div
+          className="absolute top-0 h-1.5 w-px bg-white/15"
+          style={{
+            left: `${((1 - PLAYBACK_RATE_MIN) / (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN)) * 100}%`,
+          }}
+        />
+      </div>
     </div>
   );
 });
@@ -758,12 +772,12 @@ export const PitchModeToggle = React.memo(() => {
   const mode = usePlayerStore((s) => s.pitchControlMode);
   const setMode = usePlayerStore((s) => s.setPitchControlMode);
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-[12px] border border-white/[0.08] bg-white/[0.03] p-[2px]">
+    <div className="grid grid-cols-2 gap-1 rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-[3px]">
       <button
         type="button"
         title={t('player.pitchModeAuto')}
         onClick={() => setMode('auto')}
-        className={`h-6 rounded-[8px] text-[9px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer ${
+        className={`h-7 rounded-[10px] text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer ${
           mode === 'auto' ? 'bg-white text-black' : 'text-white/45 hover:text-white/75'
         }`}
       >
@@ -773,7 +787,7 @@ export const PitchModeToggle = React.memo(() => {
         type="button"
         title={t('player.pitchModeManual')}
         onClick={() => setMode('manual')}
-        className={`h-6 rounded-[8px] text-[9px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer ${
+        className={`h-7 rounded-[10px] text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer ${
           mode === 'manual' ? 'bg-white text-black' : 'text-white/45 hover:text-white/75'
         }`}
       >
@@ -796,14 +810,23 @@ export const PitchSlider = React.memo(() => {
 
   return (
     <div
-      className={`rounded-[14px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 ${
+      className={`rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 ${
         isManual ? '' : 'opacity-65'
       }`}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/50">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
             {t('player.pitch')}
+          </span>
+          <span
+            className={`rounded-full border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] ${
+              isManual
+                ? 'border-white/[0.12] bg-white/[0.05] text-white/55'
+                : 'border-accent/30 bg-accent/[0.12] text-accent'
+            }`}
+          >
+            {isManual ? t('player.pitchModeManualShort') : t('player.pitchModeAutoShort')}
           </span>
         </div>
         <button
@@ -820,7 +843,7 @@ export const PitchSlider = React.memo(() => {
         </button>
       </div>
       <Slider.Root
-        className="group/pitch relative flex h-4 w-full cursor-pointer select-none touch-none items-center"
+        className="group/pitch relative flex h-5 w-full cursor-pointer select-none touch-none items-center"
         aria-label={t('player.pitch')}
         value={[effective]}
         min={PITCH_SEMITONES_MIN}
@@ -828,17 +851,26 @@ export const PitchSlider = React.memo(() => {
         step={PITCH_SEMITONES_STEP}
         disabled={!isManual}
         onValueChange={([v]) => isManual && setPitch(v)}
+        onWheel={(e) => {
+          if (!isManual) return;
+          if (e.cancelable) e.preventDefault();
+          setPitch(pitchSemitones + (e.deltaY < 0 ? PITCH_SEMITONES_STEP : -PITCH_SEMITONES_STEP));
+        }}
       >
         <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] transition-all duration-150 group-hover/pitch:h-[4px]">
           <Slider.Range className="absolute h-full rounded-full bg-accent" />
         </Slider.Track>
         <Slider.Thumb className="block h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] outline-none transition-all duration-150 scale-0 opacity-0 group-hover/pitch:scale-100 group-hover/pitch:opacity-100 disabled:scale-0 disabled:opacity-0" />
       </Slider.Root>
+      {/* 0 semi tick */}
+      <div className="relative mt-1 h-2 w-full pointer-events-none">
+        <div className="absolute top-0 h-1.5 w-px bg-white/15" style={{ left: '50%' }} />
+      </div>
     </div>
   );
 });
 
-const TuningBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
+const TuningBtn = React.memo(() => {
   const { t } = useTranslation();
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const pitchSemitones = usePlayerStore((s) => s.pitchSemitones);
@@ -850,12 +882,7 @@ const TuningBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          title={t('player.soundTuning')}
-          className={btnClass(isActive, 'sm')}
-        >
+        <button type="button" title={t('player.soundTuning')} className={btnClass(isActive, 'sm')}>
           {slidersHorizontal16}
         </button>
       </Popover.Trigger>
@@ -865,8 +892,22 @@ const TuningBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
           align="end"
           sideOffset={10}
           collisionPadding={12}
-          className="z-[300] w-[260px] rounded-[18px] border border-white/20 bg-black/60 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl outline-none"
+          className="z-[200] w-[300px] origin-bottom-right rounded-[18px] border border-white/[0.10] bg-[#101012]/96 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl outline-none data-[state=open]:animate-fade-in-up"
         >
+          <div className="absolute inset-x-0 top-0 h-12 rounded-t-[18px] bg-gradient-to-b from-white/[0.05] to-transparent pointer-events-none" />
+          <div className="relative flex items-center gap-2 px-1 pb-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-white/55">
+              {slidersHorizontal16}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/65">
+                {t('player.soundTuning')}
+              </p>
+              <p className="text-[10px] text-white/30">
+                {t('player.playbackSpeed')} · {t('player.pitch')}
+              </p>
+            </div>
+          </div>
           <div className="relative space-y-2">
             <PitchModeToggle />
             <PlaybackRateSlider />
@@ -878,7 +919,7 @@ const TuningBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   );
 });
 
-/* ── Pill Track Meta ─────────────────────────── */
+/* ── Track meta (art + title) for the pill ───────────────────── */
 
 const PillTrack = React.memo(({ loadProgress }: { loadProgress: number | null }) => {
   const { t } = useTranslation();
@@ -888,7 +929,7 @@ const PillTrack = React.memo(({ loadProgress }: { loadProgress: number | null })
   if (!currentTrack) {
     return (
       <div className="npb-meta">
-        <div className="npb-art relative">
+        <div className="npb-art">
           <div className="npb-artfb" />
         </div>
         <div className="npb-txt">
@@ -910,6 +951,7 @@ const PillTrackBody = React.memo(function PillTrackBody({
   navigate: ReturnType<typeof useNavigate>;
   loadProgress: number | null;
 }) {
+  const openLyricsPanel = useLyricsStore((s) => s.openPanel);
   const artistDisplay = useArtistDisplay(track);
   const displayTitle = useDisplayTitle(track);
   const artistLinks = useArtistLinkItems(track);
@@ -918,9 +960,16 @@ const PillTrackBody = React.memo(function PillTrackBody({
 
   return (
     <div className="npb-meta">
-      <div className="npb-art relative group overflow-hidden rounded-lg">
+      <div className="npb-art" onClick={() => openLyricsPanel({ rightPanelOpen: false })}>
         {artworkSmall ? <img src={artworkSmall} alt="" /> : <div className="npb-artfb" />}
-        <ShuffleBtn />
+        {/* spinning vinyl ring + live "playing" equaliser — animated only while playing */}
+        <span className="npb-ring" />
+        <span className="npb-eq">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
         {loadProgress != null && <div className="npb-art-load">{loadPercent(loadProgress)}%</div>}
       </div>
       <div className="npb-txt">
@@ -941,7 +990,7 @@ const PillTrackBody = React.memo(function PillTrackBody({
   );
 });
 
-/* ── React Cluster ───────────────────────────── */
+/* ── Like / Dislike / quality cluster for the current track ──── */
 
 const ReactCluster = React.memo(() => {
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
@@ -949,21 +998,20 @@ const ReactCluster = React.memo(() => {
   return <ReactClusterBody urn={urn} />;
 });
 
+// Single track-query + dislike observer shared by both reaction buttons.
 const ReactClusterBody = React.memo(({ urn }: { urn: string }) => {
   const trackData = useTrackReactions(urn);
   const disliked = useDislikeStatus(urn);
   return (
-    <div className="flex items-center justify-between w-full">
-      <div className="flex items-center gap-1">
-        <LikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
-        <NowBarDislikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
-      </div>
+    <div className="flex items-center gap-0.5">
+      <LikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
+      <NowBarDislikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
       <PlaybackQualityBadge />
     </div>
   );
 });
 
-/* ── Lane Times ──────────────────────────────── */
+/* ── Lane time readout (current · total), ~1fps ──────────────── */
 
 const LaneTimes = React.memo(() => {
   const current = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
@@ -976,6 +1024,7 @@ const LaneTimes = React.memo(() => {
   );
 });
 
+/* Pause looping animations while the window is hidden (WebView doesn't throttle). */
 function useDocHidden(): boolean {
   const [hidden, setHidden] = useState(
     () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
@@ -987,6 +1036,8 @@ function useDocHidden(): boolean {
   }, []);
   return hidden;
 }
+
+/* ── Background glow ─────────────────────────────────────────── */
 
 const BackgroundGlow = React.memo(() => {
   const perf = usePerfMode();
@@ -1008,93 +1059,7 @@ const BackgroundGlow = React.memo(() => {
   );
 });
 
-/* ── Made of Glass - More Options Popover ────── */
-
-const MoreOptionsPopover = React.memo(
-  ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
-    const [open, setOpen] = useState(false);
-    const close = () => setOpen(false);
-
-    return (
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-white/[0.1] text-white/70 hover:text-white"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <circle cx="3" cy="8" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="13" cy="8" r="1.5" />
-            </svg>
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            side="top"
-            align="end"
-            sideOffset={14}
-            className="z-[250] w-[260px] rounded-[22px] border border-white/20 bg-black/60 p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-2xl outline-none flex flex-col gap-3 animate-fade-in-up"
-          >
-            <div className="flex items-center justify-between px-1">
-              <ReactCluster />
-            </div>
-
-            <div className="h-px bg-white/10 w-full" />
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">Mod Repetare</span>
-              <RepeatBtn onClick={close} />
-            </div>
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">A-B Loop</span>
-              <AbLoopBtn onClick={close} />
-            </div>
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">Viteză / Pitch</span>
-              <TuningBtn onClick={close} />
-            </div>
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">Egalizator</span>
-              <EqBtn onClick={close} />
-            </div>
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">Versuri</span>
-              <LyricsBtn onClick={close} />
-            </div>
-
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-white/60">Coadă de redare</span>
-              <QueueBtn
-                onClick={() => {
-                  onQueueToggle();
-                  close();
-                }}
-                active={queueOpen}
-              />
-            </div>
-
-            <div className="h-px bg-white/10 w-full" />
-
-            <div className="flex items-center justify-between px-1">
-              <ControlVolumeBtn size="sm" />
-              <div className="flex items-center gap-2">
-                <VolumeSlider className="w-[100px]" />
-                <VolumeLabel />
-              </div>
-            </div>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-    );
-  },
-);
-
-/* ── Main NowPlayingBar Component ────────────── */
+/* ── NowPlayingBar ───────────────────────────────────────────── */
 
 export const NowPlayingBar = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
@@ -1112,20 +1077,42 @@ export const NowPlayingBar = React.memo(
           className={`npb-dock${loadProgress != null ? ' is-loading' : ''}`}
           data-playing={playingNow ? 'true' : 'false'}
         >
+          {/* glass — the only backdrop-filter, isolated in its own layer */}
           <div className="npb-glass" />
+
+          {/* accent outline that fills as the track downloads (SC → SCD) */}
           <DockLoadingRing progress={loadProgress} />
 
+          {/* content — repaints here never re-blur the glass below */}
           <div className="npb-content">
-            <div className="npb-row flex items-center justify-between gap-4">
+            <div className="npb-row">
               <PillTrack loadProgress={loadProgress} />
+              <ReactCluster />
 
-              <div className="flex items-center gap-2">
+              <div className="npb-sep" />
+
+              <div className="flex items-center gap-0.5">
+                <ShuffleBtn />
                 <PrevBtn />
                 <PlayPauseBtn />
                 <NextBtn />
+                <RepeatBtn />
+                <AbLoopBtn />
               </div>
 
-              <MoreOptionsPopover onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
+              <div className="npb-sep" />
+
+              <div className="flex items-center gap-0.5">
+                <TuningBtn />
+                <EqBtn />
+                <LyricsBtn />
+                <QueueBtn onClick={onQueueToggle} active={queueOpen} />
+                <ControlVolumeBtn size="sm" />
+                <div className="npb-vol-slider flex items-center gap-2 pl-1">
+                  <VolumeSlider className="w-[72px]" />
+                  <VolumeLabel />
+                </div>
+              </div>
             </div>
 
             <div className="npb-lane">
