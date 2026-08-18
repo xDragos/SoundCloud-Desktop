@@ -8,16 +8,12 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef } from 'react';
-import type { Track } from '../stores/player';
-import { api } from './api';
-import { initLikedUrns } from './likes';
-import { rememberLikedTracks, rememberTracks } from './offline-index';
-import { fetchRelatedTracks } from './related';
-
-/* ── Re-export API ─────────────────────────────────────────────── */
-
-export { api } from './api';
+import {useEffect, useMemo, useRef} from 'react';
+import type {Track} from '../stores/player';
+import {api} from './api';
+import {initLikedUrns} from './likes';
+import {rememberLikedTracks, rememberTracks} from './offline-index';
+import {fetchRelatedTracks} from './related';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -102,6 +98,8 @@ export interface SCUser {
   followings_count?: number;
   track_count?: number;
   city?: string | null;
+  /// Backend now emits `country_code` (ISO-2). Legacy `country` оставляем
+  /// для совместимости со старыми payload'ами SC.
   country_code?: string | null;
   country?: string | null;
 }
@@ -135,17 +133,23 @@ export interface WebProfile {
   username?: string;
 }
 
-export const SHORT_CACHE_MS = 1000 * 60 * 2;
-export const MEDIUM_CACHE_MS = 1000 * 60 * 5;
-export const SEARCH_CACHE_MS = 1000 * 60 * 2;
-export const INFINITE_GC_MS = 1000 * 60 * 3;
-export const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
-export const SEARCH_DB_LIMIT = 20;
-export const SEARCH_DB_MAX_PAGES = 10;
+const SHORT_CACHE_MS = 1000 * 60 * 2;
+const MEDIUM_CACHE_MS = 1000 * 60 * 5;
+const SEARCH_CACHE_MS = 1000 * 60 * 2;
+const INFINITE_GC_MS = 1000 * 60 * 3;
+
+/**
+ * Cold-эндпоинты (треки/плейлисты/лайки/фолловинги юзеров, /me/*) живут в
+ * нашей БД и обновляются бэком SWR-cron'ом без участия фронта. tanstack-query
+ * не должен сам дёргать refetch на каждый mount — бэк всё равно отдаст cold
+ * копию мгновенно. Полагаемся на явные invalidate'ы из мутаций
+ * (like/unlike/follow/playlist updates).
+ */
+const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-export function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
+function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
   if (!pages) return [];
   const items: T[] = [];
   for (const page of pages) {
@@ -171,19 +175,21 @@ export function dedupeByUrn<T extends { urn: string }>(items: T[]): T[] {
   return dedupeByKey(items, (item) => item.urn);
 }
 
-export interface PagedQueryOptions<T> {
+interface PagedQueryOptions<T> {
   queryKey: QueryKey;
+  /** Builds the URL for a given page index. limit and page are appended automatically. */
   url: (page: number, limit: number) => string;
   limit?: number;
   staleTime?: number;
   gcTime?: number;
   enabled?: boolean;
   maxPages?: number;
+  /** Auto-fetch all pages until exhausted. Use sparingly. */
   autoFetchAll?: boolean;
   dedupe?: (item: T) => string;
 }
 
-export type PagedQueryResult<T> = UseInfiniteQueryResult<
+type PagedQueryResult<T> = UseInfiniteQueryResult<
   InfiniteData<PagedResponse<T>, number>,
   DefaultError
 > & { items: T[] };
@@ -192,7 +198,7 @@ export type PagedQueryResult<T> = UseInfiniteQueryResult<
  * Унифицированный page-based useInfiniteQuery helper. Бэк отдаёт
  * { collection, page, page_size, has_more } — этого достаточно для пагинации.
  */
-export function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
+function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
   const limit = opts.limit ?? 30;
   const query = useInfiniteQuery<
     PagedResponse<T>,
@@ -202,25 +208,17 @@ export function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T
     number
   >({
     queryKey: opts.queryKey,
-    queryFn: ({ pageParam = 0 }) => api<PagedResponse<T>>(opts.url(pageParam, limit)),
+    queryFn: ({ pageParam }) => api<PagedResponse<T>>(opts.url(pageParam, limit)),
     initialPageParam: 0,
     getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
     staleTime: opts.staleTime,
     gcTime: opts.gcTime ?? INFINITE_GC_MS,
     maxPages: opts.maxPages,
     enabled: opts.enabled,
-
-    // ── FIX 502 / SERVER ERRORS LA SCROLL ───────────────────────────
-    retry: (failureCount, error: any) => {
-      const message = error?.message || '';
-      if (message.includes('502') || error?.status === 502) {
-        return failureCount < 3;
-      }
-      return failureCount < 2;
-    },
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
-    // ────────────────────────────────────────────────────────────────
-
+    // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
+    // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
+    // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
+    // выключен глобально в query-client.
     refetchOnMount: false,
     refetchOnReconnect: false,
   });
@@ -241,7 +239,7 @@ export function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T
   return Object.assign(query, { items }) as PagedQueryResult<T>;
 }
 
-export function pagedUrl(base: string, page: number, limit: number, extra?: string): string {
+function pagedUrl(base: string, page: number, limit: number, extra?: string): string {
   const sep = base.includes('?') ? '&' : '?';
   const params = `limit=${limit}&page=${page}${extra ? `&${extra}` : ''}`;
   return `${base}${sep}${params}`;
@@ -322,6 +320,10 @@ export function useLikedTracks(limit = 30) {
   return { tracks, ...query };
 }
 
+/**
+ * Fetch ALL liked tracks. Page-based pagination, shared promise.
+ * Optional onPage callback fires per page during the fetch.
+ */
 let _allLikesPromise: Promise<Track[]> | null = null;
 
 export function fetchAllLikedTracks(
@@ -357,6 +359,7 @@ export function invalidateAllLikesCache() {
   _allLikesPromise = null;
 }
 
+/** Все треки плейлиста, по страницам до конца — под shuffle-continuation. */
 export function fetchAllPlaylistTracks(playlistUrn: string, pageSize = 200): Promise<Track[]> {
   return (async () => {
     const all: Track[] = [];
@@ -490,6 +493,9 @@ export function useUserTracks(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'tracks'],
     url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/tracks`, page, limit),
     limit: 30,
+    // НЕ cold-infinite: owned-треки переупорядочиваются при новых загрузках
+    // артиста, а клиентской мутации (как у like/follow) тут нет — некому слать
+    // invalidate. Финитный stale → ремоунт подтянет свежий порядок с бэка.
     staleTime: MEDIUM_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
@@ -565,6 +571,8 @@ export function useUserFollowings(userUrn: string | undefined) {
   return { users: query.items, ...query };
 }
 
+/* `/users/{urn}/followers` остался горячим на бэке (входящих подписчиков мы не
+ * храним как сущность) — короткий staleTime, как раньше. */
 export function useUserFollowers(userUrn: string | undefined) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followers'],
@@ -637,6 +645,8 @@ export function useMyPlaylists(limit = 30) {
 
 /* ── Playlist Mutations ────────────────────────────────────────── */
 
+// Полная перестановка/удаление из свежей загруженной вью — шлём `{order}`-дельту
+// (а не PUT всего списка): backend применяет к desired-state и пушит в SC фоном.
 export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -653,6 +663,9 @@ export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   });
 }
 
+// Добавление — `{add}`-дельты (по одной на трек). Backend дедупит и считает
+// дельту против сохранённого desired-state, поэтому устаревшая клиентская вью
+// НЕ может уронить уже лежащие треки (прежний full-list PUT мог).
 export function useAddToPlaylist() {
   const qc = useQueryClient();
   return useMutation({
@@ -704,6 +717,8 @@ export function useCreatePlaylist() {
 
 /* ── Sharing (privacy) ─────────────────────────────────────────── */
 
+/** Тоггл приватности своего плейлиста. Optimistic: бэк сразу обновляет наш
+ *  `sharing` + кладёт write-back в SC через sync_queue. */
 export function useSetPlaylistSharing(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -718,11 +733,13 @@ export function useSetPlaylistSharing(playlistUrn: string | undefined) {
       );
       qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
       qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+      // Список своих плейлистов на профиле — ['user', urn, 'playlists'].
       qc.invalidateQueries({ queryKey: ['user'] });
     },
   });
 }
 
+/** Тоггл приватности своего трека. */
 export function useSetTrackSharing(trackUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -734,6 +751,7 @@ export function useSetTrackSharing(trackUrn: string | undefined) {
     onSuccess: (_data, sharing) => {
       qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? { ...old, sharing } : old));
       qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
+      // Списки своих треков на профиле — ['user', urn, 'tracks'] (нет ['me','tracks']).
       qc.invalidateQueries({ queryKey: ['user'] });
     },
   });
@@ -795,6 +813,16 @@ export function useSearchUsers(q: string) {
 }
 
 /* ── Search: SCD-DB ───────────────────────────────────────────── */
+
+/**
+ * Поиск в нашей базе (зеркало SoundCloud). Возвращает только то, что мы уже
+ * индексировали — но без сетевого fan-out'а в SC API, поэтому в разы быстрее.
+ * Бэк зашит на trgm-индексы + statement_timeout, фронту достаточно поднести
+ * `q` и опционально `userUrn` для скоупа.
+ */
+
+const SEARCH_DB_LIMIT = 20;
+const SEARCH_DB_MAX_PAGES = 10;
 
 export function useSearchDbTracks(q: string, userUrn?: string) {
   const query = usePagedQuery<Track>({
@@ -879,15 +907,24 @@ const EMPTY_TRACKS: Track[] = [];
 const EMPTY_ATMOSPHERE: SearchAtmosphere = { topGenres: [] };
 
 export interface SearchAtmosphere {
+  /** Dominant genres of the result set — used to tint the page atmosphere. */
   topGenres: string[];
 }
 
 export interface VibeSearchResponse {
   items: Track[];
   atmosphere: SearchAtmosphere;
+  /** "preparing" = the query vector is still being computed by the worker
+   *  (high load); items is empty, the UI shows a "preparing vibe" plaque and
+   *  this query auto-refetches until it flips to "ready". */
   status?: 'ready' | 'preparing';
 }
 
+/**
+ * Semantic "by vibe" search. Backend encodes the query (MuLan→CLAP, cached) and
+ * returns SC-shaped tracks in similarity order plus an `atmosphere` hint
+ * (dominant genres) the UI uses to recolour the page.
+ */
 export function useVibeSearch(q: string, opts?: { limit?: number; languages?: string[] }) {
   const limit = opts?.limit ?? 48;
   const langs = (opts?.languages ?? []).slice().sort().join(',');
@@ -895,6 +932,8 @@ export function useVibeSearch(q: string, opts?: { limit?: number; languages?: st
     queryKey: ['search', 'vibe', q, limit, langs],
     enabled: q.trim().length >= 2,
     staleTime: SEARCH_CACHE_MS,
+    // While the worker is still encoding the query (preparing), poll until the
+    // vector lands and the backend flips to ready.
     refetchInterval: (q2) => (q2.state.data?.status === 'preparing' ? 2500 : false),
     queryFn: () => {
       const usp = new URLSearchParams({ q: q.trim(), limit: String(limit) });
@@ -914,20 +953,25 @@ export type LyricMode = 'text' | 'semantic' | 'auto';
 
 export interface LyricHit {
   track: Track;
+  /** The matched lyric line (text mode); null for pure semantic hits. */
   matchedLine: string | null;
   score: number;
 }
 
+/**
+ * Lyric search. `text` = keyword match over stored lyrics (returns the matched
+ * line); `semantic` = lyric-embedding similarity; `auto` = both, merged.
+ */
 export function useLyricSearch(q: string, mode: LyricMode = 'auto') {
   const query = usePagedQuery<LyricHit>({
     queryKey: ['search', 'lyrics', q, mode],
-    url: (page: number, limit: number) =>
+    url: (page, limit) =>
       pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
     enabled: q.trim().length >= 2,
-    dedupe: (h: LyricHit) => h.track.urn,
+    dedupe: (h) => h.track.urn,
   });
   return { hits: query.items, ...query };
 }
@@ -964,7 +1008,12 @@ function sampleTrackUrns(tracks: Track[], limit: number): string[] {
   return sample.map((track) => track.urn);
 }
 
+/**
+ * Shared pool: fetches related tracks for up to 30 random liked tracks,
+ * counts frequency of each related track. Used by both Recommended and Discover.
+ */
 export function useRelatedPool(likedTracks: Track[]) {
+  // Stable seed — compute once when liked tracks first arrive, don't recompute on likes
   const seedRef = useRef<string[]>([]);
   if (seedRef.current.length === 0 && likedTracks.length > 0) {
     seedRef.current = sampleTrackUrns(likedTracks, 30);
@@ -1001,6 +1050,7 @@ export function useRelatedPool(likedTracks: Track[]) {
   });
 }
 
+/** Top related tracks sorted by frequency — "Recommended For You" */
 export function useRecommendedTracks(pool: RelatedPool | undefined, limit = 40) {
   return useMemo(() => {
     if (!pool) return [];
@@ -1011,6 +1061,7 @@ export function useRecommendedTracks(pool: RelatedPool | undefined, limit = 40) 
   }, [pool, limit]);
 }
 
+/** Related tracks grouped by genre, sorted by frequency — "Discover" */
 export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Track[]) {
   const genreRanking = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1049,6 +1100,11 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
   }, [pool, genreRanking]);
 }
 
+/**
+ * Общий related-pool фид: рекомендации + дискавери по жанрам, всё из лайков
+ * зрителя. Только данные (без рендера), чтобы полка «Recommended» на Home и
+ * призма Discover читали один источник, а не пересобирали пул каждая у себя.
+ */
 export function useDiscoverFeed() {
   const { tracks: likedTracks } = useLikedTracks(100);
   const { data: pool, isLoading } = useRelatedPool(likedTracks);
