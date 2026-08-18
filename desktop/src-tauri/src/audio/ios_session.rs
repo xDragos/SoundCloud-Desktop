@@ -12,7 +12,7 @@
 //! (`state::init()` calls this before spawning the `audio-output` thread).
 #![cfg(target_os = "ios")]
 
-use objc2_avf_audio::{AVAudioSession, AVAudioSessionCategory};
+use objc2_avf_audio::{AVAudioSession, AVAudioSessionCategoryPlayback};
 
 /// Activate a `.playback` `AVAudioSession`. Best-effort: failures are logged,
 /// never panic — a mis-set session degrades to foreground-only / silent-switch
@@ -21,7 +21,10 @@ pub fn configure() {
     unsafe {
         let session = AVAudioSession::sharedInstance();
 
-        if let Err(err) = session.setCategory_error(AVAudioSessionCategory::Playback) {
+        // AVAudioSessionCategoryPlayback is a `static NSString*` constant in the
+        // Apple SDK (see AVAudioSession.h), not an enum — objc2 exposes it as a
+        // module-level static, not an associated const on some `*Category` type.
+        if let Err(err) = session.setCategory_error(AVAudioSessionCategoryPlayback) {
             eprintln!("[audio][ios] setCategory(.playback) failed: {err:?}");
         }
 
