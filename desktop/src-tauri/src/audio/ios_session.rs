@@ -24,7 +24,12 @@ pub fn configure() {
         // AVAudioSessionCategoryPlayback is a `static NSString*` constant in the
         // Apple SDK (see AVAudioSession.h), not an enum — objc2 exposes it as a
         // module-level static, not an associated const on some `*Category` type.
-        if let Err(err) = session.setCategory_error(AVAudioSessionCategoryPlayback) {
+        // objc2 types externs as `Option<&NSString>` (they could theoretically be
+        // absent at link time); this constant is always present on iOS/tvOS/macOS,
+        // so unwrapping is safe.
+        let category = AVAudioSessionCategoryPlayback
+            .expect("AVAudioSessionCategoryPlayback missing from AVFAudio");
+        if let Err(err) = session.setCategory_error(category) {
             eprintln!("[audio][ios] setCategory(.playback) failed: {err:?}");
         }
 
