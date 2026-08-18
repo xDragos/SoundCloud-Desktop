@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Tells iOS this app keeps doing meaningful work in the background —
+         specifically continuous audio playback. Without this key, iOS
+         suspends the process a few seconds after it leaves the foreground
+         (Home button, screen lock, switching apps), which silently kills
+         playback regardless of what the Rust/AVAudioSession side does. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
+</dict>
+</plist>
