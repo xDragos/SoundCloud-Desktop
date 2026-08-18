@@ -1386,3 +1386,32 @@ select,
         height: 100dvh;
     }
 }
+
+/* ── NowPlayingBar: desktop vs phone row ──────────────────────
+   Two full .npb-row layouts exist in the DOM (see NowPlayingBar.tsx).
+   Only one should ever be visible.
+
+   Tailwind responsive classes (`hidden md:flex` / `flex md:hidden`)
+   are replaced with a plain CSS media query because they were not
+   taking effect correctly in this build.
+
+   Uses the same 767px breakpoint as MobileNav and .npb positioning.
+*/
+
+.npb-row-desktop {
+    display: flex;
+}
+
+.npb-row-mobile {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .npb-row-desktop {
+        display: none;
+    }
+
+    .npb-row-mobile {
+        display: flex;
+    }
+}
