@@ -1,23 +1,32 @@
-import { api, ApiError } from './api';
+import type {Track} from '../stores/player';
+import {api, ApiError} from './api';
+import type {PagedResponse} from './hooks';
 
-export interface TrackPage {
-  collection: any[];
-  page: number;
-  page_size: number;
-  has_more: boolean;
-}
+type RelatedTracks = PagedResponse<Track>;
 
-export async function fetchRelatedTracks(trackUrn: string, limit = 10): Promise<TrackPage> {
-  try {
-    return await api<TrackPage>(
-      `/tracks/${encodeURIComponent(trackUrn)}/related?limit=${limit}`,
-      { silentStatuses: [404, 502] }
-    );
-  } catch (e: unknown) {
-    const err = e as ApiError;
-    if (err?.status === 404 || err?.status === 502) {
-      return { collection: [], page: 0, page_size: limit, has_more: false };
+const emptyRelated = (page: number, limit: number): RelatedTracks => ({
+    collection: [],
+    page,
+    page_size: limit,
+    has_more: false,
+});
+
+/**
+ * Похожие треки к seed-треку. 404 от бэка = «соседей пока нет», а не ошибка:
+ * отдаём пустую страницу — без тоста и без throw. Прочие ошибки пробрасываем.
+ */
+export async function fetchRelatedTracks(
+    urn: string,
+    limit = 10,
+    page = 0,
+): Promise<RelatedTracks> {
+    try {
+        return await api<RelatedTracks>(
+            `/tracks/${encodeURIComponent(urn)}/related?limit=${limit}&page=${page}`,
+            {silentStatuses: [404]},
+        );
+    } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 403 || e.status === 502)) return emptyRelated(page, limit);
+        throw e;
     }
-    throw e;
-  }
 }
