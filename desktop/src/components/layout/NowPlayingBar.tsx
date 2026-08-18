@@ -15,6 +15,7 @@ import {
     subscribe,
 } from '../../lib/audio';
 import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
+import {MoreHorizontal} from 'lucide-react';
 import {art, formatTime} from '../../lib/formatters';
 import {invalidateAllLikesCache} from '../../lib/hooks';
 import {
@@ -22,7 +23,6 @@ import {
     Heart,
     listMusic16,
     MicVocal,
-    MoreHorizontal,
     pauseBlack20,
     playBlack20,
     repeat1Icon16,
