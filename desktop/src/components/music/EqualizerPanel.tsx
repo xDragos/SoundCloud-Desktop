@@ -194,8 +194,15 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
   return (
       <Modal>
           <ModalTrigger asChild>{children}</ModalTrigger>
-          <ModalContent size="md" showClose={false} zClass="z-[90]">
-              {/* Header */}
+<ModalContent
+    size="md"
+    showClose={false}
+    zClass="z-[100]"
+    position="popover"
+    overlay={false}
+    lockScroll={false}
+    closeOnBack
+>
               <div className="flex items-center justify-between px-6 pt-5 pb-3">
                   <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center">
