@@ -249,8 +249,8 @@ function commitTrackMetadata(track: Track) {
 
 async function fetchFreshTrackMetadata(track: Track): Promise<Track> {
   try {
-    const freshTrack = await api<Track>(`/tracks/${encodeURIComponent(track.urn)}`);
-    return mergeTrackMetadata(track, freshTrack);
+    const freshTrack = await api<unknown>(`/tracks/${encodeURIComponent(track.urn)}`);
+    return mergeTrackMetadata(track, freshTrack as TrackMetadataPatch);
   } catch (error) {
     console.warn('[Audio] Failed to hydrate track metadata:', error);
     return track;
@@ -263,7 +263,7 @@ async function resolveTrackMetadata(track: Track): Promise<Track> {
 
   try {
     const resolvedTrack = await resolveTrackFromStreaming(resolveUrl);
-    return mergeTrackMetadata(track, resolvedTrack);
+    return mergeTrackMetadata(track, resolvedTrack as TrackMetadataPatch);
   } catch (error) {
     console.warn('[Audio] Failed to resolve preview duration:', error);
     return track;
@@ -313,10 +313,6 @@ async function loadTrack(track: Track) {
   currentUrn = track.urn;
   const urn = track.urn;
 
-  // A-B loop is per-track: drop it only when loading a genuinely different track —
-  // NOT on same-track reloads (repeat-one, device/EQ reload, or the loop's own
-  // restart). Done here, after currentUrn is advanced, so the resulting store
-  // notification doesn't re-enter the track-changed branch of the subscriber.
   if (isNewTrack && usePlayerStore.getState().abLoop) {
     usePlayerStore.getState().clearAbLoop();
   }
@@ -330,20 +326,16 @@ async function loadTrack(track: Track) {
   usePlayerStore.getState().setPlaybackTransport(null, null);
   notify();
 
-  // Sync EQ state to Rust
   const { eqEnabled, eqGains, normalizeVolume } = useSettingsStore.getState();
   invoke('audio_set_eq', { enabled: eqEnabled, gains: eqGains }).catch(console.error);
   invoke('audio_set_normalization', { enabled: normalizeVolume }).catch(console.error);
 
-  // Sync volume + playback rate (pitch is folded into the speed value sent to Rust)
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
   invoke('audio_set_playback_rate', { rate: getEffectivePlaybackRate() }).catch(console.error);
 
   try {
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
-    // The cached file can be swapped (raw А → clean Б) or evicted between resolve
-    // and read; re-resolve through the cache to recover the current path.
     const reResolve = async (): Promise<string | null> => {
       const info = await getCacheInfo(urn);
       if (info?.path) return info.path;
@@ -354,7 +346,6 @@ async function loadTrack(track: Track) {
       }
     };
 
-    // Strategy 1: Cache hit — instant
     const cached = await getCacheInfo(urn);
     if (cached?.path) {
       if (gen !== loadGen) return;
@@ -377,7 +368,6 @@ async function loadTrack(track: Track) {
       return;
     }
 
-    // Strategy 2: Download full track to cache — Rust picks storage/API internally
     setDownloadProgress(0);
 
     let cachedInfo: TrackCacheInfo;
@@ -435,7 +425,6 @@ function afterLoad(track: Track, gen: number) {
       ? usePlayerStore.getState().currentTrack
       : track;
 
-  // Record to listening history (fire-and-forget), skip on repeat-one (same track looping)
   if (historyTrack?.urn && historyTrack.title && usePlayerStore.getState().repeat !== 'one') {
     api('/history', {
       method: 'POST',
@@ -466,10 +455,6 @@ async function hydrateTrackMetadata(track: Track, gen: number) {
   commitTrackMetadata(nextTrack);
 }
 
-/** Трек «закончился» через пару секунд при заявленных минутах — в кеше битый
- *  файл (заголовок целый, данные обрезаны: легаси без .meta.json или яд из
- *  storage до серверного duration-гейта). Сносим файл и перекачиваем вместо
- *  тихого скипа на следующий. */
 function maybeHealEarlyEnd(): boolean {
   if (!currentUrn || navigator.onLine === false) return false;
   const state = usePlayerStore.getState();
@@ -495,14 +480,9 @@ function maybeHealEarlyEnd(): boolean {
 
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
-  // A-B loop whose end sits at (or within a tick of) the track end: the Rust-side
-  // loop can't catch it before the sink drains, so restart the segment from A here.
   if (state.abLoop?.b != null && state.currentTrack) {
     const track = state.currentTrack;
     const a = state.abLoop.a;
-    // loadTrack bumps loadGen synchronously; capture it so that if the user switches
-    // tracks during the (async) reload, this stale restart-seek is dropped instead of
-    // jumping the newly-loaded track to A.
     const loadPromise = loadTrack(track);
     const gen = loadGen;
     void loadPromise.then(() => {
@@ -513,13 +493,9 @@ function handleTrackEnd() {
     return;
   }
   if (state.repeat === 'one') {
-    // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
     return;
   }
-  // Всегда через next(). Если упёрся в конец очереди — store сам позовёт
-  // autopilot (см. setEndOfQueueFallback в lib/queue-autopilot.ts).
-  // Clear currentUrn so subscriber detects change even if next track has same URN.
   currentUrn = null;
   usePlayerStore.getState().next();
 }
@@ -542,9 +518,6 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
 listen('audio:ended', () => {
   if (maybeHealEarlyEnd()) return;
   if (currentUrn) {
-    // Засчитываем full_play только если трек реально игрался: либо ≥30s,
-    // либо проиграно ≥50% длительности (для коротких треков). Иначе это
-    // зависшая загрузка / зеро-длительность баг — не отправляем.
     const playedEnough =
       cachedTime >= SKIP_THRESHOLD_SEC ||
       (cachedDuration > 0 && cachedTime >= cachedDuration * FULL_PLAY_RATIO);
@@ -593,7 +566,6 @@ usePlayerStore.subscribe((state, prev) => {
     lastEndedUrn = null;
 
     if (state.currentTrack) {
-      // Автоскип дизлайкнутых треков: пропускаем без загрузки/плэя.
       if (isUrnDisliked(state.currentTrack.urn)) {
         currentUrn = null;
         fallbackDuration = 0;
@@ -643,7 +615,6 @@ usePlayerStore.subscribe((state, prev) => {
     invoke('audio_set_playback_rate', { rate: getEffectivePlaybackRate() }).catch(console.error);
   }
 
-  // A-B loop: only push an active region (both bounds set); otherwise clear it.
   if (state.abLoop !== prev.abLoop) {
     const ab = state.abLoop;
     const active = ab != null && ab.b != null;
@@ -654,10 +625,6 @@ usePlayerStore.subscribe((state, prev) => {
   }
 });
 
-/** Combine playback rate and (manual) pitch into a single Rust-side speed value.
- *  Rust uses rodio's `set_speed` which couples tempo+pitch — so manual pitch is
- *  applied as a multiplier on top of the user's rate.
- */
 function getEffectivePlaybackRate(): number {
   const { playbackRate, pitchControlMode, pitchSemitones } = usePlayerStore.getState();
   if (pitchControlMode === 'manual' && Math.abs(pitchSemitones) > 0.001) {
@@ -706,7 +673,6 @@ function updateMediaPosition() {
   }
 }
 
-// Listen for media control events from souvlaki (MPRIS/SMTC)
 listen('media:play', () => usePlayerStore.getState().resume());
 listen('media:pause', () => usePlayerStore.getState().pause());
 listen('media:toggle', () => usePlayerStore.getState().togglePlay());
