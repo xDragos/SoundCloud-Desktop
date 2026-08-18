@@ -73,7 +73,7 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
         <ModalTrigger asChild>
           <button
             type="button"
-            className={`relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
+            className={`relative flex w-[340px] max-w-[calc(100vw-32px)] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
           >
             {/* Accent dot */}
             <div className={`mt-1.5 size-2 shrink-0 rounded-full ${dot} animate-pulse`} />
@@ -166,7 +166,11 @@ export const NewsToast = React.memo(function NewsToast() {
   if (visible.length === 0) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 z-[999] flex flex-col gap-2.5">
+    // Desktop: bottom-20 clears the compact .npb dock. Phone width (< md, 768px):
+    // .npb sits higher (see index.css's --mobile-nav-h clearance) AND MobileNav
+    // is a second fixed bar below it — bottom-56 clears both instead of the
+    // toast sitting on top of everything at z-[999].
+    <div className="fixed bottom-20 max-md:bottom-56 left-4 z-[999] flex flex-col gap-2.5">
       {visible.map((item, i) => (
         <SingleNewsToast key={item.id} item={item} index={i} />
       ))}
