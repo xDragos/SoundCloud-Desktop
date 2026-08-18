@@ -15,7 +15,6 @@ import {
     subscribe,
 } from '../../lib/audio';
 import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
-import {MoreHorizontal} from 'lucide-react';
 import {art, formatTime} from '../../lib/formatters';
 import {invalidateAllLikesCache} from '../../lib/hooks';
 import {
@@ -23,6 +22,7 @@ import {
     Heart,
     listMusic16,
     MicVocal,
+    MoreHorizontal,
     pauseBlack20,
     playBlack20,
     repeat1Icon16,
@@ -916,9 +916,10 @@ const MoreMenu = React.memo(() => {
   const { t } = useTranslation();
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
   const [queueOpenLocal, setQueueOpenLocal] = useState(false);
+  const [open, setOpen] = useState(false);
 
   return (
-    <Popover.Root>
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
           type="button"
@@ -958,7 +959,13 @@ const MoreMenu = React.memo(() => {
               <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
               <div className="flex items-center gap-0.5">
                 <TuningBtn />
-                <EqBtn />
+                {/* EqualizerPanel is a non-modal, overlay-less popover (see
+                    Modal.tsx) — it can't detect or close a sibling Popover on
+                    its own, so this menu closes itself right before EQ opens.
+                    Without this, both stay mounted and visibly stack. */}
+                <span onPointerDownCapture={() => setOpen(false)}>
+                  <EqBtn />
+                </span>
               </div>
             </MoreMenuRow>
 
