@@ -81,18 +81,10 @@ export const LyricsPane = React.memo(({ track }: { track: Track }) => {
     queryKey: manualQuery
       ? ['lyrics', 'search', manualQuery.artist, manualQuery.title, track.duration]
       : ['lyrics', 'track', track.urn],
-    queryFn: () => {
-      if (!manualQuery) {
-        return getLyricsByTrack(track.urn);
-      }
-      // Transmitere ca un singur obiect de optiuni sau maxim 2 argumente
-      const searchFn = searchLyricsManual as unknown as (...args: unknown[]) => Promise<unknown>;
-      return searchFn({
-        artist: manualQuery.artist,
-        title: manualQuery.title,
-        duration: track.duration,
-      });
-    },
+    queryFn: () =>
+      manualQuery
+        ? searchLyricsManual(manualQuery.artist, manualQuery.title, track.duration)
+        : getLyricsByTrack(track.urn),
     staleTime: Number.POSITIVE_INFINITY,
     retry: 1,
   });
@@ -134,22 +126,20 @@ export const LyricsPane = React.memo(({ track }: { track: Track }) => {
     );
   }
 
-  const typedLyrics = lyrics as { synced?: Array<{ text: string; time?: number }>; plain?: string; source: string } | undefined;
-
-  if (typedLyrics?.synced && typedLyrics.synced.length > 0) {
+  if (lyrics?.synced && lyrics.synced.length > 0) {
     return (
       <>
-        <LyricsSourceBadge source={typedLyrics.source} onSearch={startSearch} />
-        <SyncedLyrics lines={typedLyrics.synced} />
+        <LyricsSourceBadge source={lyrics.source} onSearch={startSearch} />
+        <SyncedLyrics lines={lyrics.synced} />
       </>
     );
   }
 
-  if (typedLyrics?.plain) {
+  if (lyrics?.plain) {
     return (
       <>
-        <LyricsSourceBadge source={typedLyrics.source} onSearch={startSearch} />
-        <PlainLyrics text={typedLyrics.plain} />
+        <LyricsSourceBadge source={lyrics.source} onSearch={startSearch} />
+        <PlainLyrics text={lyrics.plain} />
       </>
     );
   }
