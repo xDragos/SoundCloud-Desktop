@@ -378,7 +378,7 @@ export async function apiRequest<T = unknown>(
       // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
       // если всё ожило само. Только авторизованный: публичная 200 про сессию
       // не говорит ничего и не имеет права снимать вердикт.
-      noteSuccess(authenticated);
+      noteSuccess();
 
       const ct = res.headers.get('content-type');
       const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
