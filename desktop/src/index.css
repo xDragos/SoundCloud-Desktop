@@ -27,16 +27,22 @@
 }
 
 /* ── Performance modes ──────────────────────────────────────────
-   One central gate for the liquid-glass cost. `:root` carries the full "beauty"
+   One central gate for the liquid-glass cost.
+   `:root` carries the full "beauty"
    values, so the absence of the attribute === beauty and the rich design is the
-   default. ThemeProvider writes html[data-perf]; components read usePerfMode()
+   default.
+   ThemeProvider writes html[data-perf]; components read usePerfMode()
    (lib/perf.ts) to gate inline-styled blur / particles / atmosphere, which a CSS
-   class can't override. backdrop-filter:blur is the single most expensive CSS op,
-   so these vars + the light-mode solid-tint swaps below are the biggest lever. */
+   class can't override.
+   backdrop-filter:blur is the single most expensive CSS op,
+   so these vars + the light-mode solid-tint swaps below are the biggest lever.
+*/
 :root {
     --glass-blur: 40px; /* .glass and frosted panels */
-    --glass-blur-strong: 60px; /* .glass-featured (SoundWave blocks) */
-    --glass-blur-soft: 28px; /* .npb-glass (now-playing pill) */
+    --glass-blur-strong: 60px;
+    /* .glass-featured (SoundWave blocks) */
+    --glass-blur-soft: 28px;
+    /* .npb-glass (now-playing pill) */
 }
 
 [data-perf="medium"] {
@@ -52,7 +58,8 @@
 }
 
 /* Light mode: drop the live backdrop blur, keep the dark frosted look via a flat
-   solid tint (visually close on a dark UI, zero per-repaint blur cost). */
+   solid tint (visually close on a dark UI, zero per-repaint blur cost).
+*/
 [data-perf="light"] .glass,
 [data-perf="light"] .glass-flat {
     backdrop-filter: none;
@@ -83,16 +90,19 @@
 }
 
 /* Global idle-animation gate — the WebView never throttles a hidden window, so
-   pause every animation while minimized (all modes, zero visual change while shown). */
+   pause every animation while minimized (all modes, zero visual change while shown).
+*/
 [data-app-hidden="1"] *,
 [data-app-hidden="1"] *::before,
 [data-app-hidden="1"] *::after {
     animation-play-state: paused !important;
 }
 
-/* Light mode: stop decorative idle motion carried on CSS classes. Inline-styled
+/* Light mode: stop decorative idle motion carried on CSS classes.
+   Inline-styled
    motion (star fields, aurora orbs, prismatic text) is gated in JS via usePerfMode;
-   functional motion (spinners, dialog transitions, live progress) is left alone. */
+   functional motion (spinners, dialog transitions, live progress) is left alone.
+*/
 [data-perf="light"] .skeleton-shimmer,
 [data-perf="light"] .soundwave-bar,
 [data-perf="light"] .vp-chev,
@@ -111,8 +121,10 @@
 
 /* Drop sticky :hover while content scrolls under a stationary cursor — WebKitGTK
    doesn't re-hit-test on wheel scroll, so cards otherwise "stick" or light up the
-   wrong tile. The guard is set on scroll and cleared on pointer move/down (see
-   AppShell), so real hover/click intent re-enables instantly. */
+   wrong tile.
+   The guard is set on scroll and cleared on pointer move/down (see
+   AppShell), so real hover/click intent re-enables instantly.
+*/
 main[data-scrolling] *,
 main[data-scrolling] *::before,
 main[data-scrolling] *::after {
@@ -141,8 +153,10 @@ body,
 
 /* ── Text selection ─────────────────────────────────────────────
    Desktop chrome should feel native: nothing is selectable by default (no more
-   highlighting a random div). `body` covers Radix/sonner portals too. Real text
-   content opts back in with `.selectable`; inputs/editables are always selectable. */
+   highlighting a random div).
+   `body` covers Radix/sonner portals too. Real text
+   content opts back in with `.selectable`; inputs/editables are always selectable.
+*/
 body {
     user-select: none;
     -webkit-user-select: none;
@@ -328,8 +342,10 @@ select,
 }
 
 /* ── Custom modal shell (components/ui/Modal.tsx) — JS-toggled transitions ──
- * data-state is flipped in JS (open ⇄ closed); plain CSS transitions do the
- * animation. No Radix, no @keyframes — works reliably under WebKitGTK. */
+ * data-state is flipped in JS (open ⇄ closed);
+ * plain CSS transitions do the
+ * animation. No Radix, no @keyframes — works reliably under WebKitGTK.
+ */
 .modal-overlay {
   opacity: 0;
   transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -519,12 +535,14 @@ select,
 }
 
 /* Light mode renders the active line as one .lyric-fill span (no per-char nodes),
-   so brighten its text directly — the per-char sweep that lights beauty is absent. */
+   so brighten its text directly — the per-char sweep that lights beauty is absent.
+*/
 [data-perf="light"] .lyric-line[data-state="active"] .lyric-fill {
     color: #fff;
 }
 
-/* A "word" wrapper just keeps characters from breaking mid-word. */
+/* A "word" wrapper just keeps characters from breaking mid-word.
+*/
 .lyric-word {
   display: inline-block;
   white-space: nowrap;
@@ -642,8 +660,10 @@ select,
   }
 }
 
-/* Particle drift — translate+opacity only (no scale). Scale on ~20 elements
-   forces relayout of their composite rect every frame; pure translate stays
+/* Particle drift — translate+opacity only (no scale).
+   Scale on ~20 elements
+   forces relayout of their composite rect every frame;
+   pure translate stays
    on the GPU compositor. */
 @keyframes sw-drift {
   0% {
@@ -660,8 +680,10 @@ select,
 }
 
 /* Aurora orbs carry a heavy `filter: blur()`; rotate/scale would force the
-   blur kernel to recompute every frame (huge GPU cost). Stick to translate —
-   that's a cheap composite transform, blur result stays cached. */
+   blur kernel to recompute every frame (huge GPU cost).
+   Stick to translate —
+   that's a cheap composite transform, blur result stays cached.
+*/
 @keyframes sw-aurora {
   0%,
   100% {
@@ -693,13 +715,17 @@ select,
 }
 
 /* ── Liquid Glass Portal (vp-) — vibe-search CTA in the SoundWave hero ──
-   Composite-only motion: transform / opacity / box-shadow. Pointer lensing
-   (--mx/--my/--px) is written from JS to CSS vars. Blur layers (vp-aurora,
+   Composite-only motion: transform / opacity / box-shadow.
+   Pointer lensing
+   (--mx/--my/--px) is written from JS to CSS vars.
+   Blur layers (vp-aurora,
    vp-lens) carry contain:strict + translateZ(0) to live on their own GPU
-   layer; the content wrapper is isolation:isolate so its repaints never
+   layer;
+   the content wrapper is isolation:isolate so its repaints never
    recompute those blurs. */
 
-/* Idle chevron breathing; accelerates on hover so the » "opens" toward search. */
+/* Idle chevron breathing;
+   accelerates on hover so the » "opens" toward search. */
 @keyframes vp-chev {
     0%,
     100% {
@@ -730,7 +756,8 @@ select,
     opacity: 1;
 }
 
-/* Marching » chevrons. will-change is intent-scoped to :hover only. */
+/* Marching » chevrons.
+   will-change is intent-scoped to :hover only. */
 .vp-chev {
     animation: vp-chev 1.9s ease-in-out infinite;
 }
@@ -740,12 +767,14 @@ select,
     will-change: transform;
 }
 
-/* Gleam sweeps once per hover (skew lives on the inner span, unanimated). */
+/* Gleam sweeps once per hover (skew lives on the inner span, unanimated).
+*/
 .vp-portal:hover .vp-gleam {
     animation: vp-gleam 1.05s var(--ease-apple);
 }
 
-/* Sigil lifts and its hairline ring expands on hover. */
+/* Sigil lifts and its hairline ring expands on hover.
+*/
 .vp-sigil {
     transition: transform 0.45s var(--ease-apple);
 }
@@ -766,9 +795,11 @@ select,
     transform: scale(1.22);
 }
 
-/* Motes drift at rest, then are drawn toward the » well on hover. The drift
+/* Motes drift at rest, then are drawn toward the » well on hover.
+   The drift
    animation is dropped (not paused) on hover so the base value + pull
-   transition take over — a paused animation would keep overriding transform. */
+   transition take over — a paused animation would keep overriding transform.
+*/
 .vp-mote {
     animation-name: sw-drift;
     animation-timing-function: ease-in-out;
@@ -801,8 +832,10 @@ select,
 }
 
 /* Progress-based waveform: two stacked bar layers, the accent one clipped
-   by --sw-progress (0%–100%). Only the clip-path changes at runtime — GPU
-   composite-only, zero layout, zero React re-renders during playback. */
+   by --sw-progress (0%–100%).
+   Only the clip-path changes at runtime — GPU
+   composite-only, zero layout, zero React re-renders during playback.
+*/
 .sw-bars {
   --sw-progress: 0%;
 }
@@ -844,12 +877,16 @@ select,
 }
 
 /* ── Now Playing Bar — Liquid Pill Dock ──────────────────────────
-   A single floating frosted capsule. The glass (backdrop-filter) lives in
-   its OWN isolated layer (.npb-glass); all live/interactive content sits in
+   A single floating frosted capsule.
+   The glass (backdrop-filter) lives in
+   its OWN isolated layer (.npb-glass);
+   all live/interactive content sits in
    a sibling .npb-content layer ABOVE it, so 60fps progress repaints never
-   re-run the blur. There is no idle motion; the looping "now playing" cues
+   re-run the blur.
+   There is no idle motion; the looping "now playing" cues
    (vinyl ring, eq bars, play pulse) run only while [data-playing] is true
-   (= playing AND window visible). */
+   (= playing AND window visible).
+*/
 .npb {
     position: absolute;
     left: 0;
@@ -1236,8 +1273,10 @@ select,
 }
 
 /* track loading (SC → SCD): the capsule traces its own glowing accent outline,
-   the artwork shows a % veil, and the halo brightens. No idle motion — the ring
-   just fills to the real download progress via a transition. */
+   the artwork shows a % veil, and the halo brightens.
+   No idle motion — the ring
+   just fills to the real download progress via a transition.
+*/
 .npb-dock.is-loading {
     box-shadow: 0 30px 70px -22px rgba(0, 0, 0, 0.78),
     0 0 90px -10px var(--color-accent-glow);
@@ -1313,19 +1352,37 @@ select,
 }
 
 /* ── Mobile bottom nav clearance ──────────────────────────────
-   MobileNav (components/layout/MobileNav.tsx) is a fixed bar pinned to the
-   bottom on phone-width viewports (< Tailwind `md`, 768px). .npb is itself
-   a `position: absolute; bottom: 0` overlay (see the "Now Playing Bar" block
-   above), so on phones the floating player dock needs to sit above the nav
-   bar instead of flush with the screen edge. --mobile-nav-h is the single
-   source of truth for the bar's height — MobileNav reads it for its own
-   height, .npb reads it for clearance, so they can't drift out of sync. */
+   MobileNav (components/layout/MobileNav.tsx) is `position: fixed`, pinned to
+   the real viewport bottom on phone-width viewports (< Tailwind `md`, 768px).
+   .npb is `position: absolute` (see the "Now Playing Bar" block above) inside
+   AppShell's `h-screen` root container — on iOS Safari/WKWebView, `100vh`
+   frequently does NOT match the real visual viewport height (dynamic toolbars,
+   safe-area quirks), so an `absolute` .npb inside that container can drift out
+   of sync with a `fixed` MobileNav, clipping the dock off-screen. Switching
+   .npb to `position: fixed` on phone width makes both bars anchor to the same
+   real viewport, so they can no longer disagree.
+   --mobile-nav-h is the single source of truth for MobileNav's height — both
+   MobileNav's own height and .npb's clearance read it, so they can't drift
+   out of sync with each other either. */
 :root {
     --mobile-nav-h: 64px;
 }
 
 @media (max-width: 767px) {
     .npb {
+        position: fixed;
         bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* AppShell's root is `h-screen` (Tailwind's 100vh). On iOS Safari/WKWebView,
+   100vh is unreliable — it doesn't track the real visual viewport as browser
+   chrome/safe-areas change, which is the root cause of .npb's absolute
+   positioning drifting from MobileNav's fixed positioning above. 100dvh
+   tracks the actual visible viewport (iOS 16+ / all current WKWebView), so
+   phone-width gets the accurate height instead of Tailwind's h-screen class. */
+@media (max-width: 767px) {
+    #root > div:first-child {
+        height: 100dvh;
     }
 }
