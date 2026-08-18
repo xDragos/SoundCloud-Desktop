@@ -1,10 +1,10 @@
-import { api, ApiError } from './api';
+import { api } from './api';
 
 export async function recoverAuthSession(): Promise<boolean> {
   try {
     await api('/auth/me');
     return true;
-  } catch (e: unknown) {
+  } catch (_e: unknown) {
     return false;
   }
 }
