@@ -17,12 +17,12 @@ import {
 import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
 import {art, formatTime} from '../../lib/formatters';
 import {invalidateAllLikesCache} from '../../lib/hooks';
+import {MoreHorizontal} from 'lucide-react';
 import {
     audioLines16,
     Heart,
     listMusic16,
     MicVocal,
-    MoreHorizontal,
     pauseBlack20,
     playBlack20,
     repeat1Icon16,
