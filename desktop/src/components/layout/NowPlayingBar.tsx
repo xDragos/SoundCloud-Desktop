@@ -302,7 +302,7 @@ export const ProgressSlider = React.memo(() => {
   );
 });
 
-/* ── Progress Time (Exportat pentru TrackColumn) ── */
+/* ── Progress Time ───────────────────────────── */
 
 export const ProgressTime = React.memo(() => {
   const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
@@ -589,17 +589,24 @@ const ShuffleBtn = React.memo(() => {
   );
 });
 
-const RepeatBtn = React.memo(() => {
+const RepeatBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   const repeat = usePlayerStore((s) => s.repeat);
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
   return (
-    <button type="button" onClick={toggleRepeat} className={btnClass(repeat !== 'off', 'sm')}>
+    <button
+      type="button"
+      onClick={() => {
+        toggleRepeat();
+        if (onClick) onClick();
+      }}
+      className={btnClass(repeat !== 'off', 'sm')}
+    >
       {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
     </button>
   );
 });
 
-const AbLoopBtn = React.memo(() => {
+const AbLoopBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   const { t } = useTranslation();
   const abLoop = usePlayerStore((s) => s.abLoop);
   const cycleAbPoint = usePlayerStore((s) => s.cycleAbPoint);
@@ -616,7 +623,10 @@ const AbLoopBtn = React.memo(() => {
       type="button"
       title={title}
       aria-label={title}
-      onClick={() => cycleAbPoint(getCurrentTime())}
+      onClick={() => {
+        cycleAbPoint(getCurrentTime());
+        if (onClick) onClick();
+      }}
       className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-90 ${
         active
           ? 'text-accent bg-accent/15 shadow-[0_0_14px_-4px_var(--color-accent-glow)]'
@@ -652,7 +662,7 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
   </button>
 ));
 
-const LyricsBtn = React.memo(() => {
+const LyricsBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   const open = useLyricsStore((s) => s.open);
   const closePanel = useLyricsStore((s) => s.close);
   const openPanel = useLyricsStore((s) => s.openPanel);
@@ -662,6 +672,7 @@ const LyricsBtn = React.memo(() => {
       onClick={() => {
         if (open) closePanel();
         else openPanel({ tab: 'lyrics', rightPanelOpen: true });
+        if (onClick) onClick();
       }}
       className={btnClass(open, 'sm')}
     >
@@ -670,11 +681,11 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
-const EqBtn = React.memo(() => {
+const EqBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   return (
     <EqualizerPanel>
-      <button type="button" className={btnClass(eqEnabled, 'sm')}>
+      <button type="button" onClick={onClick} className={btnClass(eqEnabled, 'sm')}>
         {audioLines16}
       </button>
     </EqualizerPanel>
@@ -827,7 +838,7 @@ export const PitchSlider = React.memo(() => {
   );
 });
 
-const TuningBtn = React.memo(() => {
+const TuningBtn = React.memo(({ onClick }: { onClick?: () => void }) => {
   const { t } = useTranslation();
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const pitchSemitones = usePlayerStore((s) => s.pitchSemitones);
@@ -839,7 +850,12 @@ const TuningBtn = React.memo(() => {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" title={t('player.soundTuning')} className={btnClass(isActive, 'sm')}>
+        <button
+          type="button"
+          onClick={onClick}
+          title={t('player.soundTuning')}
+          className={btnClass(isActive, 'sm')}
+        >
           {slidersHorizontal16}
         </button>
       </Popover.Trigger>
@@ -849,7 +865,7 @@ const TuningBtn = React.memo(() => {
           align="end"
           sideOffset={10}
           collisionPadding={12}
-          className="z-[200] w-[260px] rounded-[18px] border border-white/20 bg-black/60 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl outline-none"
+          className="z-[300] w-[260px] rounded-[18px] border border-white/20 bg-black/60 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl outline-none"
         >
           <div className="relative space-y-2">
             <PitchModeToggle />
@@ -996,8 +1012,11 @@ const BackgroundGlow = React.memo(() => {
 
 const MoreOptionsPopover = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
+    const [open, setOpen] = useState(false);
+    const close = () => setOpen(false);
+
     return (
-      <Popover.Root>
+      <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>
           <button
             type="button"
@@ -1025,32 +1044,38 @@ const MoreOptionsPopover = React.memo(
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">Mod Repetare</span>
-              <RepeatBtn />
+              <RepeatBtn onClick={close} />
             </div>
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">A-B Loop</span>
-              <AbLoopBtn />
+              <AbLoopBtn onClick={close} />
             </div>
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">Viteză / Pitch</span>
-              <TuningBtn />
+              <TuningBtn onClick={close} />
             </div>
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">Egalizator</span>
-              <EqBtn />
+              <EqBtn onClick={close} />
             </div>
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">Versuri</span>
-              <LyricsBtn />
+              <LyricsBtn onClick={close} />
             </div>
 
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-medium text-white/60">Coadă de redare</span>
-              <QueueBtn onClick={onQueueToggle} active={queueOpen} />
+              <QueueBtn
+                onClick={() => {
+                  onQueueToggle();
+                  close();
+                }}
+                active={queueOpen}
+              />
             </div>
 
             <div className="h-px bg-white/10 w-full" />
