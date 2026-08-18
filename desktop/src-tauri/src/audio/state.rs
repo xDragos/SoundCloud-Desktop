@@ -77,6 +77,9 @@ pub struct AudioState {
 }
 
 pub fn init() -> AudioState {
+    #[cfg(target_os = "ios")]
+    crate::audio::ios_session::configure();
+
     let (mixer_tx, mixer_rx) = std::sync::mpsc::channel::<Arc<Mutex<Mixer>>>();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<AudioThreadCmd>();
     let device_error_flag = Arc::new(AtomicBool::new(false));
