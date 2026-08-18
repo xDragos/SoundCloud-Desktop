@@ -18,30 +18,30 @@ export function setSessionId(id: string | null): void {
   sessionId = id;
 }
 
-export function buildStorageUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+export function buildStorageUrls(trackId?: unknown, _arg2?: unknown, _arg3?: unknown): string[] {
   return trackId ? [`/api/stream/${trackId}`] : [];
 }
 
-export function downloadFallbackUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+export function downloadFallbackUrls(trackId?: unknown, _arg2?: unknown, _arg3?: unknown): string[] {
   return trackId ? [`/api/download/${trackId}`] : [];
 }
 
-export function streamFallbackUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+export function streamFallbackUrls(trackId?: unknown, _arg2?: unknown, _arg3?: unknown): string[] {
   return trackId ? [`/api/stream/${trackId}`] : [];
 }
 
-export async function resolveTrackFromStreaming(streamingUrl: string): Promise<any> {
+export async function resolveTrackFromStreaming(streamingUrl: string): Promise<unknown> {
   return api(`/tracks/resolve?url=${encodeURIComponent(streamingUrl)}`);
 }
 
-export async function fetchWithAuthFallback<T = any>(
+export async function fetchWithAuthFallback<T = unknown>(
   url: string,
   options?: RequestInit & { silentStatuses?: number[] },
 ): Promise<T> {
   return api<T>(url, options);
 }
 
-export async function api<T = any>(
+export async function api<T = unknown>(
   url: string,
   options?: RequestInit & { silentStatuses?: number[] },
   timeoutMs?: number,
@@ -75,9 +75,10 @@ export async function api<T = any>(
     }
 
     return (await response.json()) as T;
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (id) clearTimeout(id);
-    if (error.name === 'AbortError') {
+    const err = error as { name?: string };
+    if (err.name === 'AbortError') {
       throw new ApiError(408, 'Request timeout');
     }
     throw error;
