@@ -1,4 +1,14 @@
-import { api, pagedUrl, SEARCH_CACHE_MS, SEARCH_DB_LIMIT, SEARCH_DB_MAX_PAGES, usePagedQuery } from './hooks';
+import { api } from './api';
+
+export interface LyricLine {
+  text: string;
+  timestamp?: number;
+}
+
+export interface LyricsSource {
+  id: string;
+  name: string;
+}
 
 export type LyricMode = 'text' | 'semantic' | 'auto';
 
@@ -8,24 +18,18 @@ export interface LyricHit {
   score: number;
 }
 
-export function useLyricSearch(q: string, mode: LyricMode = 'auto') {
-  const query = usePagedQuery<LyricHit>({
-    queryKey: ['search', 'lyrics', q, mode],
-    url: (page, limit) =>
-      pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
-    limit: SEARCH_DB_LIMIT,
-    staleTime: SEARCH_CACHE_MS,
-    maxPages: SEARCH_DB_MAX_PAGES,
-    enabled: q.trim().length >= 2,
-    dedupe: (h) => h.track.urn,
-  });
-  return { hits: query.items, ...query };
-}
-
 export async function fetchLyricsByTrack(trackUrn: string): Promise<any> {
   return api(`/tracks/${encodeURIComponent(trackUrn)}/lyrics`, undefined, 10000);
 }
 
+export async function getLyricsByTrack(trackUrn: string): Promise<any> {
+  return fetchLyricsByTrack(trackUrn);
+}
+
 export async function fetchLyricsTimed(trackUrn: string): Promise<any> {
   return api(`/tracks/${encodeURIComponent(trackUrn)}/lyrics/timed`, undefined, 10000);
+}
+
+export async function searchLyricsManual(query: string, trackUrn?: string): Promise<LyricHit[]> {
+  return api(`/search/lyrics/manual?q=${encodeURIComponent(query)}${trackUrn ? `&track_urn=${encodeURIComponent(trackUrn)}` : ''}`);
 }
