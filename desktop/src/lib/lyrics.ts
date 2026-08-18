@@ -1,35 +1,76 @@
-import { api } from './api';
+import {api} from './api';
+
+export type LyricsSource = 'lrclib' | 'musixmatch' | 'genius' | 'netease' | 'self_gen' | 'none';
 
 export interface LyricLine {
+  time: number;
   text: string;
-  timestamp?: number;
 }
 
-export interface LyricsSource {
-  id: string;
-  name: string;
+export interface LyricsResult {
+  plain: string | null;
+  synced: LyricLine[] | null;
+  source: LyricsSource;
+  language: string | null;
 }
 
-export type LyricMode = 'text' | 'semantic' | 'auto';
-
-export interface LyricHit {
-  track: any;
-  matchedLine: string | null;
-  score: number;
+interface BackendLyricsResponse {
+  scTrackId: string;
+  syncedLrc: string | null;
+  plainText: string | null;
+  source: LyricsSource;
+  language: string | null;
+  languageConfidence: number | null;
 }
 
-export async function fetchLyricsByTrack(trackUrn: string): Promise<any> {
-  return api(`/tracks/${encodeURIComponent(trackUrn)}/lyrics`, undefined, 10000);
+/** Parse LRC format: [mm:ss.xx] text */
+export function parseLRC(lrc: string): LyricLine[] {
+  const lines: LyricLine[] = [];
+  for (const raw of lrc.split('\n')) {
+    const m = raw.match(/^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)/);
+    if (!m) continue;
+    const time = +m[1] * 60 + +m[2] + +m[3].padEnd(3, '0') / 1000;
+    const text = m[4].trim();
+    if (text) lines.push({ time, text });
+  }
+  return lines;
 }
 
-export async function getLyricsByTrack(trackUrn: string): Promise<any> {
-  return fetchLyricsByTrack(trackUrn);
+function toResult(data: BackendLyricsResponse | null): LyricsResult | null {
+  if (!data) return null;
+  const synced = data.syncedLrc ? parseLRC(data.syncedLrc) : null;
+  return {
+    plain: data.plainText,
+    synced: synced && synced.length > 0 ? synced : null,
+    source: data.source,
+    language: data.language,
+  };
 }
 
-export async function fetchLyricsTimed(trackUrn: string): Promise<any> {
-  return api(`/tracks/${encodeURIComponent(trackUrn)}/lyrics/timed`, undefined, 10000);
+/** Load lyrics by track URN/id. Backend resolves artist/title itself and writes to cache. */
+export async function getLyricsByTrack(scTrackId: string): Promise<LyricsResult | null> {
+  const data = await api<BackendLyricsResponse>(
+    `/lyrics/${encodeURIComponent(scTrackId)}`,
+    undefined,
+    180_000,
+  ).catch(() => null);
+  return toResult(data);
 }
 
-export async function searchLyricsManual(query: string, trackUrn?: string): Promise<LyricHit[]> {
-  return api(`/search/lyrics/manual?q=${encodeURIComponent(query)}${trackUrn ? `&track_urn=${encodeURIComponent(trackUrn)}` : ''}`);
+/** Manual search — preview only. Backend does NOT read or write cache. */
+export async function searchLyricsManual(
+  artist: string,
+  title: string,
+  durationMs?: number,
+): Promise<LyricsResult | null> {
+  const params = new URLSearchParams({ artist, title });
+  if (durationMs && Number.isFinite(durationMs) && durationMs > 0) {
+    params.set('duration', String(Math.round(durationMs)));
+  }
+  const data = await api<BackendLyricsResponse>(
+    `/lyrics/search?${params}`,
+    undefined,
+    180_000,
+  ).catch(() => null);
+  return toResult(data);
 }
