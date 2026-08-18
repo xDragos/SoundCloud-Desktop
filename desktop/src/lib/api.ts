@@ -18,19 +18,16 @@ export function setSessionId(id: string | null): void {
   sessionId = id;
 }
 
-export function buildStorageUrls(trackId: string | number): { streamUrl: string; downloadUrl: string } {
-  return {
-    streamUrl: `/api/stream/${trackId}`,
-    downloadUrl: `/api/download/${trackId}`,
-  };
+export function buildStorageUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+  return trackId ? [`/api/stream/${trackId}`] : [];
 }
 
-export function downloadFallbackUrls(trackId: string | number): string[] {
-  return [`/api/download/${trackId}`];
+export function downloadFallbackUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+  return trackId ? [`/api/download/${trackId}`] : [];
 }
 
-export function streamFallbackUrls(trackId: string | number): string[] {
-  return [`/api/stream/${trackId}`];
+export function streamFallbackUrls(trackId?: any, arg2?: any, arg3?: any): string[] {
+  return trackId ? [`/api/stream/${trackId}`] : [];
 }
 
 export async function resolveTrackFromStreaming(streamingUrl: string): Promise<any> {
