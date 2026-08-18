@@ -963,7 +963,14 @@ const MoreMenu = React.memo(() => {
                     Modal.tsx) — it can't detect or close a sibling Popover on
                     its own, so this menu closes itself right before EQ opens.
                     Without this, both stay mounted and visibly stack. */}
-                <span onPointerDownCapture={() => setOpen(false)}>
+                <span
+                  onClick={() => {
+                    // Close this menu right after the click is dispatched (not
+                    // during capture) so EqualizerPanel's own Modal trigger
+                    // still receives the click and opens before we unmount.
+                    setTimeout(() => setOpen(false), 0);
+                  }}
+                >
                   <EqBtn />
                 </span>
               </div>
@@ -1154,8 +1161,8 @@ export const NowPlayingBar = React.memo(
           <DockLoadingRing progress={loadProgress} />
 
           <div className="npb-content">
-            {/* ── Desktop row (md and up): unchanged from before ── */}
-            <div className="hidden md:flex npb-row">
+            {/* ── Desktop row (≥768px): unchanged from before ── */}
+            <div className="npb-row npb-row-desktop">
               <PillTrack loadProgress={loadProgress} />
               <ReactCluster />
 
@@ -1185,8 +1192,8 @@ export const NowPlayingBar = React.memo(
               </div>
             </div>
 
-            {/* ── Phone row (below md): art + core transport + one "more" button ── */}
-            <div className="flex md:hidden npb-row">
+            {/* ── Phone row (<768px): art + core transport + one "more" button ── */}
+            <div className="npb-row npb-row-mobile">
               <PillTrack loadProgress={loadProgress} />
 
               <div className="flex items-center gap-0.5 ml-auto">
