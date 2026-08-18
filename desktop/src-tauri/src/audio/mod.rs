@@ -4,6 +4,8 @@ mod decode;
 mod device;
 mod engine;
 mod eq;
+#[cfg(target_os = "ios")]
+mod ios_session;
 mod media_controls;
 mod state;
 mod tick;
