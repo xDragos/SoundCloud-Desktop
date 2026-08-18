@@ -1,43 +1,88 @@
-// src/lib/api.ts
-
-export async function api<T = any>(endpoint: string, options?: RequestInit): Promise<T> {
-  const baseUrl = import.meta.env?.VITE_API_URL || '';
-  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
-
-  let retries = 3;
-  let delay = 500;
-
-  while (retries > 0) {
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
-      });
-
-      // Dacă serverul dă 502 (Bad Gateway), așteptăm și reîncercăm
-      if (response.status === 502) {
-        throw new Error('Server error (502)');
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP Error ${response.status}`);
-      }
-
-      return (await response.json()) as T;
-    } catch (err: any) {
-      retries--;
-      if (retries === 0) {
-        throw err;
-      }
-      // Pauză crescătoare între încercări (500ms, 1000ms...)
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay *= 2;
-    }
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
+}
 
-  throw new Error('Server error (502)');
+let sessionId: string | null = null;
+
+export function getSessionId(): string | null {
+  return sessionId;
+}
+
+export function setSessionId(id: string | null): void {
+  sessionId = id;
+}
+
+export function buildStorageUrls(trackId: string | number): { streamUrl: string; downloadUrl: string } {
+  return {
+    streamUrl: `/api/stream/${trackId}`,
+    downloadUrl: `/api/download/${trackId}`,
+  };
+}
+
+export function downloadFallbackUrls(trackId: string | number): string[] {
+  return [`/api/download/${trackId}`];
+}
+
+export function streamFallbackUrls(trackId: string | number): string[] {
+  return [`/api/stream/${trackId}`];
+}
+
+export async function resolveTrackFromStreaming(streamingUrl: string): Promise<any> {
+  return api(`/tracks/resolve?url=${encodeURIComponent(streamingUrl)}`);
+}
+
+export async function fetchWithAuthFallback<T = any>(
+  url: string,
+  options?: RequestInit & { silentStatuses?: number[] },
+): Promise<T> {
+  return api<T>(url, options);
+}
+
+export async function api<T = any>(
+  url: string,
+  options?: RequestInit & { silentStatuses?: number[] },
+  timeoutMs?: number,
+): Promise<T> {
+  const controller = new AbortController();
+  const id = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string>),
+    };
+
+    if (sessionId) {
+      headers['X-Session-ID'] = sessionId;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers,
+    });
+
+    if (id) clearTimeout(id);
+
+    if (!response.ok) {
+      if (!options?.silentStatuses?.includes(response.status)) {
+        console.error(`API Error ${response.status} on ${url}`);
+      }
+      throw new ApiError(response.status, `HTTP error! status: ${response.status}`);
+    }
+
+    return (await response.json()) as T;
+  } catch (error: any) {
+    if (id) clearTimeout(id);
+    if (error.name === 'AbortError') {
+      throw new ApiError(408, 'Request timeout');
+    }
+    throw error;
+  }
 }
