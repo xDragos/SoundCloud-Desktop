@@ -75,14 +75,5 @@ tauri-build = { git = "https://github.com/tauri-apps/tauri", branch = "feat/cef"
 ksni = { version = "0.3.5", default-features = false, features = ["tokio"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-# Dacă folosești souvlaki ca dependență directă, asigură-te că este declarată.
-# Pentru a forța Rust să includă framework-urile iOS:
-
-[target.'cfg(target_os = "ios")']
-rustflags = [
-    "-L", "framework=/System/Library/Frameworks",
-    "-l", "framework=MediaPlayer",
-    "-l", "framework=AVFoundation",
-    "-l", "framework=CoreAudio",
-    "-l", "framework=AudioToolbox"
-]
+objc2 = "0.6"
+objc2-avf-audio = { version = "0.3", features = ["AVAudioSession", "AVAudioSessionTypes"] }
