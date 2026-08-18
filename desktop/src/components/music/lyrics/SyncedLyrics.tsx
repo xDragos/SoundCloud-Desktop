@@ -4,11 +4,20 @@ import React, {useEffect, useMemo, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
 import {getCurrentTime, seek} from '../../../lib/audio';
 import {Search} from '../../../lib/icons';
-import type {LyricLine, LyricsSource} from '../../../lib/lyrics';
+import type {LyricLine as BaseLyricLine, LyricsSource as BaseLyricsSource} from '../../../lib/lyrics';
 import {usePerfMode} from '../../../lib/perf';
 import {usePlayerStore} from '../../../stores/player';
 
-const SOURCE_LABELS: Record<LyricsSource, string> = {
+export type LyricsSource = BaseLyricsSource | string;
+
+export interface LyricLine extends Partial<BaseLyricLine> {
+    text: string;
+    time?: number;
+    timestamp?: number;
+    start?: number;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
     lrclib: 'LRCLib',
     musixmatch: 'Musixmatch',
     genius: 'Genius',
@@ -20,33 +29,47 @@ const SOURCE_LABELS: Record<LyricsSource, string> = {
 const PAUSE_MARKER = '♪♪♪';
 const PAUSE_GAP_THRESHOLD = 4.5; // seconds — when to insert ♪♪♪
 
-type DisplayLine = LyricLine & { pause?: boolean; duration?: number };
+export interface DisplayLine {
+    text: string;
+    time: number;
+    pause?: boolean;
+    duration?: number;
+}
+
+function getLineTime(line: LyricLine): number {
+    return line.time ?? line.timestamp ?? line.start ?? 0;
+}
 
 function buildDisplayLines(lines: LyricLine[]): DisplayLine[] {
     if (!lines.length) return [];
     const out: DisplayLine[] = [];
     for (let i = 0; i < lines.length; i++) {
         const cur = lines[i];
+        const curTime = getLineTime(cur);
         const prev = lines[i - 1];
         if (prev) {
-            const gap = cur.time - prev.time;
+            const prevTime = getLineTime(prev);
+            const gap = curTime - prevTime;
             if (gap >= PAUSE_GAP_THRESHOLD) {
                 out.push({
-                    time: prev.time + 0.5,
+                    time: prevTime + 0.5,
                     text: PAUSE_MARKER,
                     pause: true,
                     duration: gap - 0.6,
                 });
             }
-        } else if (cur.time >= PAUSE_GAP_THRESHOLD) {
+        } else if (curTime >= PAUSE_GAP_THRESHOLD) {
             out.push({
                 time: 0.05,
                 text: PAUSE_MARKER,
                 pause: true,
-                duration: Math.max(0.5, cur.time - 0.1),
+                duration: Math.max(0.5, curTime - 0.1),
             });
         }
-        out.push(cur);
+        out.push({
+            text: cur.text,
+            time: curTime,
+        });
     }
     return out;
 }
@@ -65,13 +88,10 @@ interface CharCell {
 }
 
 function splitChars(text: string): CharCell[] {
-    // Use Array.from to handle surrogate pairs / emoji as single grapheme-ish units.
     return Array.from(text).map((ch) => ({ch, animated: isAnimatedChar(ch)}));
 }
 
 function splitWordsForChars(cells: CharCell[]): CharCell[][] {
-    // Group consecutive cells of same kind (animated vs whitespace) so words stay together
-    // and don't break across lines mid-word.
     const groups: CharCell[][] = [];
     let cur: CharCell[] = [];
     let curKind: boolean | null = null;
@@ -129,10 +149,6 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
             lines: displayLines.map((line) => ({timeSecs: line.time})),
         });
 
-        /** Per-char "head" sweeps left-to-right across the line.
-         *  Each char's local progress is `head - charIndex`, smoothed.
-         *  Slight forward leak (`+SOFT_LEAD`) so the leading char visibly lights up
-         *  before becoming the active char — mimics the karaoke-style sweep. */
         const SOFT_LEAD = 0.6;
         const SOFT_TAIL = 1.4;
 
@@ -149,7 +165,6 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
                 const head = value * total;
                 for (let c = 0; c < total; c++) {
                     const local = clamp01((head - c + SOFT_LEAD) / SOFT_TAIL);
-                    // smoothstep
                     const eased = local * local * (3 - 2 * local);
                     chars[c].style.setProperty('--char-progress', eased.toFixed(4));
                 }
@@ -157,7 +172,7 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
 
             const line = linesRef.current[i];
             const bar = pauseBarsRef.current[i];
-            if (bar && line.pause) {
+            if (bar && line?.pause) {
                 bar.style.width = `${(value * 100).toFixed(2)}%`;
             }
         };
@@ -172,12 +187,12 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
 
             if (state === 'past' || state === 'past-near') {
                 writeLineProgress(i, 1);
-                if (bar && line.pause) bar.dataset.state = 'past';
+                if (bar && line?.pause) bar.dataset.state = 'past';
             } else if (state === 'next' || state === 'next-near') {
                 writeLineProgress(i, 0);
-                if (bar && line.pause) bar.dataset.state = '';
+                if (bar && line?.pause) bar.dataset.state = '';
             } else if (state === 'active') {
-                if (bar && line.pause) bar.dataset.state = 'active';
+                if (bar && line?.pause) bar.dataset.state = 'active';
             }
         };
 
@@ -217,9 +232,8 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
 
         let rafId = 0;
         let lastTickTs = 0;
-        const FRAME_BUDGET_MS = 33; // ~30fps — sweep is per-char so 30fps still looks smooth
+        const FRAME_BUDGET_MS = 33;
         const tick = (ts: number) => {
-            // Park the rAF entirely while hidden; visibilitychange restarts it.
             if (document.visibilityState === 'hidden') {
                 rafId = 0;
                 return;
@@ -297,9 +311,6 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
                         );
                     }
                     if (!perChar) {
-                        // Light: per-line highlight only — no per-char spans (hundreds of
-                        // text-shadow nodes). The active line lights up via its [data-state]
-                        // line styling (index.css), not the per-char sweep.
                         return (
                             <div
                                 key={`${line.time}-${i}`}
@@ -315,8 +326,6 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
                     }
                     const cells = splitChars(line.text);
                     const groups = splitWordsForChars(cells);
-                    // animatedIndex must be stable across whole line (chars-only count) so
-                    // CSS sweep aligns with visible glyphs only, ignoring whitespace.
                     let animatedIndex = 0;
                     return (
                         <div
@@ -327,27 +336,27 @@ export const SyncedLyrics = React.memo(({lines}: { lines: LyricLine[] }) => {
                                 seek(line.time);
                             }}
                         >
-              <span className="lyric-fill">
-                {groups.map((group, gi) => {
-                    if (group.length === 0) return null;
-                    const isWhitespace = !group[0].animated;
-                    if (isWhitespace) {
-                        return <span key={gi}>{group.map((c) => c.ch).join('')}</span>;
-                    }
-                    return (
-                        <span key={gi} className="lyric-word">
-                      {group.map((c, ci) => {
-                          const idx = animatedIndex++;
-                          return (
-                              <span key={ci} className="lyric-char" data-char-index={idx}>
-                            {c.ch}
-                          </span>
-                          );
-                      })}
-                    </span>
-                    );
-                })}
-              </span>
+                            <span className="lyric-fill">
+                                {groups.map((group, gi) => {
+                                    if (group.length === 0) return null;
+                                    const isWhitespace = !group[0].animated;
+                                    if (isWhitespace) {
+                                        return <span key={gi}>{group.map((c) => c.ch).join('')}</span>;
+                                    }
+                                    return (
+                                        <span key={gi} className="lyric-word">
+                                            {group.map((c, ci) => {
+                                                const idx = animatedIndex++;
+                                                return (
+                                                    <span key={ci} className="lyric-char" data-char-index={idx}>
+                                                        {c.ch}
+                                                    </span>
+                                                );
+                                            })}
+                                        </span>
+                                    );
+                                })}
+                            </span>
                         </div>
                     );
                 })}
@@ -371,14 +380,15 @@ export const PlainLyrics = React.memo(({text}: { text: string }) => (
 export const LyricsSourceBadge = React.memo(
     ({source, onSearch}: { source: LyricsSource; onSearch: () => void }) => {
         const {t} = useTranslation();
-        const label = source === 'self_gen' ? t('track.selfGenerated') : SOURCE_LABELS[source];
+        const srcKey = String(source);
+        const label = srcKey === 'self_gen' ? t('track.selfGenerated') : SOURCE_LABELS[srcKey] ?? srcKey;
         return (
             <div className="flex items-center justify-between px-12 pt-3 pb-0">
                 {label ? (
                     <span
                         className="text-[10px] font-semibold text-white/20 bg-white/[0.04] px-2 py-0.5 rounded-full border border-white/[0.06]">
-            {label}
-          </span>
+                        {label}
+                    </span>
                 ) : (
                     <span/>
                 )}
