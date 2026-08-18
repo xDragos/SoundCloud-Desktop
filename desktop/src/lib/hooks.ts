@@ -8,12 +8,16 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import {useEffect, useMemo, useRef} from 'react';
-import type {Track} from '../stores/player';
-import {api} from './api';
-import {initLikedUrns} from './likes';
-import {rememberLikedTracks, rememberTracks} from './offline-index';
-import {fetchRelatedTracks} from './related';
+import { useEffect, useMemo, useRef } from 'react';
+import type { Track } from '../stores/player';
+import { api } from './api';
+import { initLikedUrns } from './likes';
+import { rememberLikedTracks, rememberTracks } from './offline-index';
+import { fetchRelatedTracks } from './related';
+
+/* ── Re-export API ─────────────────────────────────────────────── */
+
+export { api } from './api';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -131,15 +135,17 @@ export interface WebProfile {
   username?: string;
 }
 
-const SHORT_CACHE_MS = 1000 * 60 * 2;
-const MEDIUM_CACHE_MS = 1000 * 60 * 5;
-const SEARCH_CACHE_MS = 1000 * 60 * 2;
-const INFINITE_GC_MS = 1000 * 60 * 3;
-const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
+export const SHORT_CACHE_MS = 1000 * 60 * 2;
+export const MEDIUM_CACHE_MS = 1000 * 60 * 5;
+export const SEARCH_CACHE_MS = 1000 * 60 * 2;
+export const INFINITE_GC_MS = 1000 * 60 * 3;
+export const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
+export const SEARCH_DB_LIMIT = 20;
+export const SEARCH_DB_MAX_PAGES = 10;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
+export function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
   if (!pages) return [];
   const items: T[] = [];
   for (const page of pages) {
@@ -165,7 +171,7 @@ export function dedupeByUrn<T extends { urn: string }>(items: T[]): T[] {
   return dedupeByKey(items, (item) => item.urn);
 }
 
-interface PagedQueryOptions<T> {
+export interface PagedQueryOptions<T> {
   queryKey: QueryKey;
   url: (page: number, limit: number) => string;
   limit?: number;
@@ -177,7 +183,7 @@ interface PagedQueryOptions<T> {
   dedupe?: (item: T) => string;
 }
 
-type PagedQueryResult<T> = UseInfiniteQueryResult<
+export type PagedQueryResult<T> = UseInfiniteQueryResult<
   InfiniteData<PagedResponse<T>, number>,
   DefaultError
 > & { items: T[] };
@@ -186,7 +192,7 @@ type PagedQueryResult<T> = UseInfiniteQueryResult<
  * Унифицированный page-based useInfiniteQuery helper. Бэк отдаёт
  * { collection, page, page_size, has_more } — этого достаточно для пагинации.
  */
-function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
+export function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
   const limit = opts.limit ?? 30;
   const query = useInfiniteQuery<
     PagedResponse<T>,
@@ -196,7 +202,7 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
     number
   >({
     queryKey: opts.queryKey,
-    queryFn: ({ pageParam }) => api<PagedResponse<T>>(opts.url(pageParam, limit)),
+    queryFn: ({ pageParam = 0 }) => api<PagedResponse<T>>(opts.url(pageParam, limit)),
     initialPageParam: 0,
     getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
     staleTime: opts.staleTime,
@@ -235,7 +241,7 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
   return Object.assign(query, { items }) as PagedQueryResult<T>;
 }
 
-function pagedUrl(base: string, page: number, limit: number, extra?: string): string {
+export function pagedUrl(base: string, page: number, limit: number, extra?: string): string {
   const sep = base.includes('?') ? '&' : '?';
   const params = `limit=${limit}&page=${page}${extra ? `&${extra}` : ''}`;
   return `${base}${sep}${params}`;
@@ -790,9 +796,6 @@ export function useSearchUsers(q: string) {
 
 /* ── Search: SCD-DB ───────────────────────────────────────────── */
 
-const SEARCH_DB_LIMIT = 20;
-const SEARCH_DB_MAX_PAGES = 10;
-
 export function useSearchDbTracks(q: string, userUrn?: string) {
   const query = usePagedQuery<Track>({
     queryKey: ['search', 'db', 'tracks', q, userUrn ?? ''],
@@ -918,13 +921,13 @@ export interface LyricHit {
 export function useLyricSearch(q: string, mode: LyricMode = 'auto') {
   const query = usePagedQuery<LyricHit>({
     queryKey: ['search', 'lyrics', q, mode],
-    url: (page, limit) =>
+    url: (page: number, limit: number) =>
       pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
     enabled: q.trim().length >= 2,
-    dedupe: (h) => h.track.urn,
+    dedupe: (h: LyricHit) => h.track.urn,
   });
   return { hits: query.items, ...query };
 }
