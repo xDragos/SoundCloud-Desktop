@@ -965,20 +965,10 @@ const MoreMenu = React.memo(() => {
               <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
               <div className="flex items-center gap-0.5">
                 <TuningBtn />
-                {/* EqBtn now toggles the shared usePanels() store. We close
-                    this popover in the same click handler (sync, no
-                    setTimeout) so EqualizerPanel never renders stacked
-                    underneath this menu — see EqBtn above. */}
-                <span
-                  onClick={() => {
-                    setOpen(false);
-                    panels.toggle('eq');
-                  }}
-                >
-                  <EqBtn />
-                </span>
-              </div>
-            </MoreMenuRow>
+            
+        <span onPointerDown={() => setOpen(false)}>
+  <EqBtn />
+</span>
 
             <MoreMenuRow>
               <MoreMenuLabel>{t('kb.groupPanels')}</MoreMenuLabel>
