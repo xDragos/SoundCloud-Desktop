@@ -674,17 +674,15 @@ const LyricsBtn = React.memo(() => {
  * so this button just toggles that shared state. */
 const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
-  const panels = usePanels();
   return (
-    <button
-      type="button"
-      onClick={() => panels.toggle('eq')}
-      className={btnClass(eqEnabled, 'sm')}
-    >
-      {audioLines16}
-    </button>
+    <EqualizerPanel>
+      <button type="button" className={btnClass(eqEnabled, 'sm')}>
+        {audioLines16}
+      </button>
+    </EqualizerPanel>
   );
 });
+
 
 /* ── Playback rate (speed) slider ─────────────────────────────── */
 
