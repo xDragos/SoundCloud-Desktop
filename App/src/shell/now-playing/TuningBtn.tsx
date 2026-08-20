@@ -11,15 +11,21 @@ import {
 } from '../../player/PlayerContext';
 import { IconButton } from './IconButton';
 import { Slider } from './Slider';
+
 const fmtRate = (r: number) =>
-  `${r.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}x`;
+  `${r
+    .toFixed(2)
+    .replace(/\.00$/, '')
+    .replace(/(\.\d)0$/, '$1')}x`;
+
 const fmtPitch = (s: number) =>
   Math.abs(s) < 0.001
     ? '0'
-    : `${s > 0 ? '+' : ''}${s.toFixed(1).replace(/\.0$/, '')}`;
-/** Настройка звука (донор TuningBtn-поповер): скорость + тональность.
- *  Скорость → ядро (set_speed). Pitch: auto = производная от скорости (натуральный
- *  rodio-питч), manual = независимый сдвиг (ждёт DSP в ядре — пока UI-стейт). */
+    : `${s > 0 ? '+' : ''}${s
+        .toFixed(1)
+        .replace(/\.0$/, '')}`;
+
+/** Настройка звука: скорость + тональность. */
 export function TuningBtn({
   open: controlledOpen,
   onOpenChange,
@@ -29,28 +35,56 @@ export function TuningBtn({
 }) {
   const { accent } = useScTheme();
   const player = usePlayerState();
+
+  /*
+   * We support both:
+   *  - controlled mode, used by Extras on iPhone;
+   *  - uncontrolled mode, so the component remains backwards-compatible.
+   */
   const [internalOpen, setInternalOpen] = useState(false);
+
   const isControlled = controlledOpen !== undefined;
-  const open = isControlled ? controlledOpen : internalOpen;
+  const open = isControlled
+    ? controlledOpen
+    : internalOpen;
+
   const setOpen = (next: boolean) => {
     if (!isControlled) {
       setInternalOpen(next);
     }
+
     onOpenChange?.(next);
   };
-  const { playbackRate, pitchSemitones, pitchMode } = player;
+
+  const {
+    playbackRate,
+    pitchSemitones,
+    pitchMode,
+  } = player;
+
   const isManual = pitchMode === 'manual';
+
   const effective = effectivePitch(
     playbackRate,
     pitchMode,
     pitchSemitones,
   );
-  const rateActive = Math.abs(playbackRate - 1) >= 0.001;
+
+  const rateActive =
+    Math.abs(playbackRate - 1) >= 0.001;
+
   const active =
     rateActive ||
-    (isManual && Math.abs(pitchSemitones) >= 0.001);
+    (isManual &&
+      Math.abs(pitchSemitones) >= 0.001);
+
   return (
-    <View style={{ position: 'relative' }}>
+    <View
+      style={{
+        position: 'relative',
+        zIndex: open ? 70 : 1,
+      }}
+    >
       <IconButton
         size={30}
         onPress={() => setOpen(!open)}
@@ -64,6 +98,7 @@ export function TuningBtn({
           }
         />
       </IconButton>
+
       {open &&
         Platform.OS === 'web' &&
         createElement('div', {
@@ -74,19 +109,31 @@ export function TuningBtn({
             zIndex: 55,
           },
         })}
+
       {open && (
         <View
           style={{
             position: 'absolute',
             bottom: 40,
             right: 0,
-            width: 300,
+
+            /*
+             * On iPhone the player is much narrower than desktop.
+             * Keep the tuning panel usable without making it wider
+             * than the screen.
+             */
+            width: Platform.OS !== 'web'
+              ? 280
+              : 300,
+
+            maxWidth: 'calc(100vw - 20px)' as never,
+
             padding: 12,
             borderRadius: 18,
             backgroundColor: 'rgba(16,16,18,0.97)',
             borderWidth: 1,
             borderColor: 'rgba(255,255,255,0.1)',
-            zIndex: 60,
+            zIndex: 100,
             gap: 10,
           }}
         >
@@ -98,21 +145,29 @@ export function TuningBtn({
               padding: 3,
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.07)',
-              backgroundColor: 'rgba(255,255,255,0.03)',
+              borderColor:
+                'rgba(255,255,255,0.07)',
+              backgroundColor:
+                'rgba(255,255,255,0.03)',
             }}
           >
             <ModeTab
               label="АВТО"
               on={!isManual}
-              onPress={() => player.setPitchMode('auto')}
+              onPress={() =>
+                player.setPitchMode('auto')
+              }
             />
+
             <ModeTab
               label="РУЧНОЙ"
               on={isManual}
-              onPress={() => player.setPitchMode('manual')}
+              onPress={() =>
+                player.setPitchMode('manual')
+              }
             />
           </View>
+
           <TuneRow
             title="Скорость"
             value={fmtRate(playbackRate)}
@@ -120,12 +175,15 @@ export function TuningBtn({
             accent={accent.base}
             glow={accent.glow}
             frac={
-              (playbackRate - PLAYBACK_RATE_MIN) /
-              (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN)
+              (playbackRate -
+                PLAYBACK_RATE_MIN) /
+              (PLAYBACK_RATE_MAX -
+                PLAYBACK_RATE_MIN)
             }
             tickFrac={
               (1 - PLAYBACK_RATE_MIN) /
-              (PLAYBACK_RATE_MAX - PLAYBACK_RATE_MIN)
+              (PLAYBACK_RATE_MAX -
+                PLAYBACK_RATE_MIN)
             }
             onSeek={(f) =>
               player.setPlaybackRate(
@@ -141,26 +199,30 @@ export function TuningBtn({
                 : undefined
             }
           />
+
           <TuneRow
             title="Тональность"
             value={fmtPitch(effective)}
             active={
               isManual &&
-              Math.abs(pitchSemitones) >= 0.001
+              Math.abs(pitchSemitones) >=
+                0.001
             }
             accent={accent.base}
             glow={accent.glow}
             frac={
-              (effective - PITCH_SEMITONES_MIN) /
-              (PITCH_SEMITONES_MAX - PITCH_SEMITONES_MIN)
+              (effective -
+                PITCH_SEMITONES_MIN) /
+              (PITCH_SEMITONES_MAX -
+                PITCH_SEMITONES_MIN)
             }
             tickFrac={0.5}
             dim={!isManual}
-            // Крутить питч можно всегда — в auto тап сам переводит в manual (иначе «не тыкается»).
             onSeek={(f) => {
               if (!isManual) {
                 player.setPitchMode('manual');
               }
+
               player.setPitchSemitones(
                 PITCH_SEMITONES_MIN +
                   f *
@@ -170,7 +232,8 @@ export function TuningBtn({
             }}
             onReset={
               isManual &&
-              Math.abs(pitchSemitones) >= 0.001
+              Math.abs(pitchSemitones) >=
+                0.001
                 ? player.resetPitchSemitones
                 : undefined
             }
@@ -180,6 +243,7 @@ export function TuningBtn({
     </View>
   );
 }
+
 function ModeTab({
   label,
   on,
@@ -218,6 +282,7 @@ function ModeTab({
     </Pressable>
   );
 }
+
 function TuneRow({
   title,
   value,
@@ -246,8 +311,10 @@ function TuneRow({
       style={{
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
-        backgroundColor: 'rgba(255,255,255,0.02)',
+        borderColor:
+          'rgba(255,255,255,0.06)',
+        backgroundColor:
+          'rgba(255,255,255,0.02)',
         paddingHorizontal: 12,
         paddingVertical: 10,
         opacity: dim ? 0.65 : 1,
@@ -267,11 +334,13 @@ function TuneRow({
             fontWeight: '700',
             letterSpacing: 0.8,
             textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.45)',
+            color:
+              'rgba(255,255,255,0.45)',
           }}
         >
           {title}
         </ScText>
+
         <Pressable
           onPress={onReset}
           disabled={!onReset}
@@ -289,6 +358,7 @@ function TuneRow({
           </ScText>
         </Pressable>
       </View>
+
       <Slider
         value={frac}
         onSeek={onSeek ?? (() => {})}
@@ -299,6 +369,7 @@ function TuneRow({
         thumbSize={11}
         disabled={!onSeek}
       />
+
       <View
         style={{
           height: 8,
@@ -311,7 +382,8 @@ function TuneRow({
             top: 0,
             width: 1,
             height: 6,
-            backgroundColor: 'rgba(255,255,255,0.15)',
+            backgroundColor:
+              'rgba(255,255,255,0.15)',
             left: `${tickFrac * 100}%`,
           }}
         />
