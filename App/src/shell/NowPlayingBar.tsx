@@ -959,19 +959,7 @@ const MoreMenu = React.memo(() => {
               <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
               <div className="flex items-center gap-0.5">
                 <TuningBtn />
-                {/* EqualizerPanel wraps EqBtn's button as its own Modal
-                    trigger (Radix-style pointerdown→pointerup→click). If we
-                    close this popover synchronously on pointerdown, the
-                    trigger element can unmount mid-sequence and never fires
-                    its click — so we defer the close by a tick instead,
-                    letting EqualizerPanel's Modal open first. */}
-                <span
-                  onPointerDown={() => {
-                    setTimeout(() => setOpen(false), 0);
-                  }}
-                >
-                  <EqBtn />
-                </span>
+                <EqBtn />
               </div>
             </MoreMenuRow>
 
