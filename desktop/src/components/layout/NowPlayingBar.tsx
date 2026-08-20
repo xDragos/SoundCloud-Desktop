@@ -669,14 +669,18 @@ const LyricsBtn = React.memo(() => {
 
 const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+  const panels = usePanels();
   return (
-    <EqualizerPanel>
-      <button type="button" className={btnClass(eqEnabled, 'sm')}>
-        {audioLines16}
-      </button>
-    </EqualizerPanel>
+    <button
+      type="button"
+      onClick={() => panels.toggle('eq')}
+      className={btnClass(eqEnabled, 'sm')}
+    >
+      {audioLines16}
+    </button>
   );
 });
+
 
 /* ── Playback rate (speed) slider ─────────────────────────────── */
 
