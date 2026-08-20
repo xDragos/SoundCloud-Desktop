@@ -154,9 +154,14 @@ const PresetBtn = React.memo(function PresetBtn({
 
 export const EqualizerPanel = React.memo(function EqualizerPanel({
   children,
+  open,
+  onOpenChange,
 }: {
   children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
+
   const { t, i18n } = useTranslation();
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   const eqGains = useSettingsStore((s) => s.eqGains);
@@ -192,8 +197,9 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
   }, [setEqGains, setEqPreset]);
 
 return (
-    <Modal>
+    <Modal open={open} onOpenChange={onOpenChange}>
         <ModalTrigger asChild>{children}</ModalTrigger>
+
 
         <ModalContent
             size="md"
