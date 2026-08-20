@@ -923,7 +923,6 @@ const MoreMenu = React.memo(() => {
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
   const [queueOpenLocal, setQueueOpenLocal] = useState(false);
   const [open, setOpen] = useState(false);
-  const panels = usePanels();
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
