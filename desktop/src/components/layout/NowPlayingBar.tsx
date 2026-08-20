@@ -55,8 +55,8 @@ import {
 } from '../../stores/player';
 import {useSettingsStore} from '../../stores/settings';
 import {ArtistNameLinks} from '../music/ArtistNameLinks';
-import {EqualizerPanel} from '../music/EqualizerPanel';
 import {UploadKindDot} from '../music/UploadKindDot';
+import {usePanels} from './panels';
 
 /* ── Track loading progress (SC → SCD download) ──────────────── */
 
@@ -667,6 +667,10 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
+/* EqBtn now drives the shared usePanels() store directly instead of
+ * wrapping EqualizerPanel as a trigger — EqualizerPanel (see
+ * PlayerPanels.tsx) is controlled purely by panels.isOpen('eq') / onClose,
+ * so this button just toggles that shared state. */
 const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   const panels = usePanels();
@@ -680,7 +684,6 @@ const EqBtn = React.memo(() => {
     </button>
   );
 });
-
 
 /* ── Playback rate (speed) slider ─────────────────────────────── */
 
@@ -921,6 +924,7 @@ const MoreMenu = React.memo(() => {
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
   const [queueOpenLocal, setQueueOpenLocal] = useState(false);
   const [open, setOpen] = useState(false);
+  const panels = usePanels();
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -963,16 +967,14 @@ const MoreMenu = React.memo(() => {
               <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
               <div className="flex items-center gap-0.5">
                 <TuningBtn />
-                {/* EqualizerPanel is a non-modal, overlay-less popover (see
-                    Modal.tsx) — it can't detect or close a sibling Popover on
-                    its own, so this menu closes itself right before EQ opens.
-                    Without this, both stay mounted and visibly stack. */}
+                {/* EqBtn now toggles the shared usePanels() store. We close
+                    this popover in the same click handler (sync, no
+                    setTimeout) so EqualizerPanel never renders stacked
+                    underneath this menu — see EqBtn above. */}
                 <span
                   onClick={() => {
-                    // Close this menu right after the click is dispatched (not
-                    // during capture) so EqualizerPanel's own Modal trigger
-                    // still receives the click and opens before we unmount.
-                    setTimeout(() => setOpen(false), 0);
+                    setOpen(false);
+                    panels.toggle('eq');
                   }}
                 >
                   <EqBtn />
