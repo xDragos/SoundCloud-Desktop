@@ -926,6 +926,7 @@ const MoreMenu = React.memo(() => {
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
   const [queueOpenLocal, setQueueOpenLocal] = useState(false);
   const [open, setOpen] = useState(false);
+  const [eqOpen, setEqOpen] = useState(false);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -957,20 +958,27 @@ const MoreMenu = React.memo(() => {
             )}
 
             <MoreMenuRow>
-              <MoreMenuLabel>{t('kb.groupPlayback')}</MoreMenuLabel>
-              <div className="flex items-center gap-0.5">
-                <RepeatBtn />
-                <AbLoopBtn />
-              </div>
-            </MoreMenuRow>
+  <MoreMenuLabel>{t('kb.groupPlayback')}</MoreMenuLabel>
+  <div className="flex items-center gap-0.5">
+    <RepeatBtn />
+    <AbLoopBtn />
+  </div>
+</MoreMenuRow>
 
-            <MoreMenuRow>
-              <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
-              <div className="flex items-center gap-0.5">
-                <TuningBtn />
-                <EqBtn />
-              </div>
-            </MoreMenuRow>
+<MoreMenuRow>
+  <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
+  <div className="flex items-center gap-0.5">
+    <TuningBtn />
+    <EqBtn
+      open={eqOpen}
+      onOpenChange={(v) => {
+        setEqOpen(v);
+        if (v) setOpen(false);
+      }}
+    />
+  </div>
+</MoreMenuRow>
+
 
             <MoreMenuRow>
               <MoreMenuLabel>{t('kb.groupPanels')}</MoreMenuLabel>
