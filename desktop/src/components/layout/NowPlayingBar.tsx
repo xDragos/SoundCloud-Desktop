@@ -962,13 +962,14 @@ const MoreMenu = React.memo(() => {
             </MoreMenuRow>
 
             <MoreMenuRow>
-              <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
-              <div className="flex items-center gap-0.5">
-                <TuningBtn />
-            
-        <span onPointerDown={() => setOpen(false)}>
-  <EqBtn />
-</span>
+  <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
+  <div className="flex items-center gap-0.5">
+    <TuningBtn />
+    <span onPointerDown={() => setOpen(false)}>
+      <EqBtn />
+    </span>
+  </div>
+</MoreMenuRow>
 
             <MoreMenuRow>
               <MoreMenuLabel>{t('kb.groupPanels')}</MoreMenuLabel>
