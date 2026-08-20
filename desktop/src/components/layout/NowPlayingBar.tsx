@@ -55,8 +55,9 @@ import {
 } from '../../stores/player';
 import {useSettingsStore} from '../../stores/settings';
 import {ArtistNameLinks} from '../music/ArtistNameLinks';
+import {EqualizerPanel} from '../music/EqualizerPanel';
 import {UploadKindDot} from '../music/UploadKindDot';
-import {usePanels} from './panels';
+
 
 /* ── Track loading progress (SC → SCD download) ──────────────── */
 
