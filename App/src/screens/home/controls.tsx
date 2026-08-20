@@ -2,6 +2,7 @@ import { type ReactNode, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { type Track, useSc } from '@sc/data';
 import { CheckIcon, ClockIcon, GlobeIcon, HeartIcon, ScText, useScTheme } from '@sc/ui';
+import { EqualizerPanel } from './EqualizerPanel';
 
 const LANGUAGES: Array<{ code: string; name: string }> = [
   { code: 'en', name: 'English' },
