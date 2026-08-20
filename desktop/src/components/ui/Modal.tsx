@@ -295,9 +295,15 @@ export function ModalContent({
 
     if (!mounted) return null;
 
+    // Desktop keeps the original bottom-right anchored popover corner.
+    // Phone width (max-md) centers it on screen instead: the old
+    // bottom-[184px]/right-3 offset was tuned before .npb became `position:
+    // fixed` and MobileNav was added, and no longer lands inside the visible
+    // viewport on current layouts — centering is layout-agnostic and can't
+    // drift out of view again.
     const positionClass =
         position === 'popover'
-            ? 'fixed bottom-[92px] right-6 left-auto top-auto max-md:bottom-[184px] max-md:right-3'
+            ? 'fixed bottom-[92px] right-6 left-auto top-auto max-md:left-1/2 max-md:right-auto max-md:top-1/2 max-md:bottom-auto max-md:-translate-x-1/2 max-md:-translate-y-1/2'
             : 'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2';
 
     return createPortal(
