@@ -667,16 +667,25 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
-const EqBtn = React.memo(() => {
-  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
-  return (
-    <EqualizerPanel>
-      <button type="button" className={btnClass(eqEnabled, 'sm')}>
-        {audioLines16}
-      </button>
-    </EqualizerPanel>
-  );
-});
+const EqBtn = React.memo(
+  ({
+    open,
+    onOpenChange,
+  }: {
+    open?: boolean;
+    onOpenChange?: (v: boolean) => void;
+  }) => {
+    const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+    return (
+      <EqualizerPanel open={open} onOpenChange={onOpenChange}>
+        <button type="button" className={btnClass(eqEnabled, 'sm')}>
+          {audioLines16}
+        </button>
+      </EqualizerPanel>
+    );
+  },
+);
+
 
 /* ── Playback rate (speed) slider ─────────────────────────────── */
 
