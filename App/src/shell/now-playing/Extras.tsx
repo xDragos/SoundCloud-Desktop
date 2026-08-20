@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { View } from 'react-native';
-import { AudioLinesIcon, MicVocalIcon, QueueIcon, ScText, VolumeIcon } from '@sc/ui';
+import {
+  AudioLinesIcon,
+  MicVocalIcon,
+  QueueIcon,
+  ScText,
+  VolumeIcon,
+} from '@sc/ui';
 import { useT } from '../../i18n';
 import { useEq } from '../../player/EqContext';
 import { lyricsUi, useLyricsUi } from '../../player/lyrics-ui';
@@ -9,9 +15,8 @@ import { usePanels } from '../panels';
 import { IconButton } from './IconButton';
 import { Slider } from './Slider';
 import { TuningBtn } from './TuningBtn';
-/** Правый кластер плеера (донор `.npb-row`): настройка звука, EQ, лирика, очередь,
- *  громкость. Громкость 0-200% (>100 — буст, янтарь). EQ/очередь — панели,
- *  лирика — fullscreen-оверлей. */
+
+/** Правый кластер плеера: настройка звука, EQ, лирика, очередь, громкость. */
 export function Extras({
   volume,
   onSetVolume,
@@ -26,25 +31,56 @@ export function Extras({
   glowColor: string;
 }) {
   const idle = 'rgba(255,255,255,0.55)';
+
   const panels = usePanels();
   const eq = useEq();
   const lyrics = useLyricsUi();
+
   const [tuningOpen, setTuningOpen] = useState(false);
+
   const boosted = volume > 100;
   const t = useT();
+
   const openEqualizer = () => {
-    // Închide meniul Tuning înainte să deschidă Equalizer-ul.
+    /*
+     * Important for iPhone:
+     *
+     * TuningBtn is a local popover, while Equalizer is a global panel.
+     * Close the local popover first so it cannot remain visible above/below
+     * the EQ overlay.
+     */
     setTuningOpen(false);
-    // Deschide Equalizer-ul. usePanels() se ocupă automat
-    // să închidă orice alt panel deschis.
+
+    /*
+     * panels.toggle() also guarantees that only one global panel
+     * (queue / eq) can be open at a time.
+     */
     panels.toggle('eq');
   };
+
+  const toggleQueue = () => {
+    /*
+     * If the Tuning popover is open, close it before opening Queue.
+     * This keeps the mobile player clean as well.
+     */
+    setTuningOpen(false);
+    panels.toggle('queue');
+  };
+
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        minWidth: 0,
+      }}
+    >
       <TuningBtn
         open={tuningOpen}
         onOpenChange={setTuningOpen}
       />
+
       <IconButton
         size={30}
         onPress={openEqualizer}
@@ -55,6 +91,7 @@ export function Extras({
           color={eq.enabled ? accentColor : idle}
         />
       </IconButton>
+
       <IconButton
         size={30}
         onPress={() => lyricsUi.toggle()}
@@ -65,16 +102,22 @@ export function Extras({
           color={lyrics.open ? accentColor : idle}
         />
       </IconButton>
+
       <IconButton
         size={30}
-        onPress={() => panels.toggle('queue')}
+        onPress={toggleQueue}
         tooltip={t('player.queue')}
       >
         <QueueIcon
           size={16}
-          color={panels.isOpen('queue') ? accentColor : idle}
+          color={
+            panels.isOpen('queue')
+              ? accentColor
+              : idle
+          }
         />
       </IconButton>
+
       <IconButton
         size={36}
         onPress={onToggleMute}
@@ -82,22 +125,30 @@ export function Extras({
       >
         <VolumeIcon
           size={16}
-          color={volume === 0 ? accentColor : idle}
+          color={
+            volume === 0
+              ? accentColor
+              : idle
+          }
           muted={volume === 0}
           low={volume < 50}
         />
       </IconButton>
+
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           gap: 8,
           paddingLeft: 4,
+          flexShrink: 1,
         }}
       >
         <Slider
           value={volume / VOLUME_MAX}
-          onSeek={(f) => onSetVolume(f * VOLUME_MAX)}
+          onSeek={(f) =>
+            onSetVolume(f * VOLUME_MAX)
+          }
           color={
             volume === 0
               ? idle
@@ -110,8 +161,11 @@ export function Extras({
           hoverHeight={4}
           thumbSize={10}
           tickFrac={0.5}
-          style={{ width: 72 }}
+          style={{
+            width: 72,
+          }}
         />
+
         <ScText
           style={{
             fontSize: 10,
