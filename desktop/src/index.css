@@ -19,30 +19,15 @@
   --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-serif: "Fraunces", Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Geometric techno-display for hero numerals (STAR price) — bold, energy-core vibe. */
   --font-display: "Unbounded", "Inter", system-ui, sans-serif;
-  /* Console mono with cyrillic + ₽ coverage (STAR labels/serials/tags). */
   --font-mono-console: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ── Performance modes ──────────────────────────────────────────
-   One central gate for the liquid-glass cost.
-   `:root` carries the full "beauty"
-   values, so the absence of the attribute === beauty and the rich design is the
-   default.
-   ThemeProvider writes html[data-perf]; components read usePerfMode()
-   (lib/perf.ts) to gate inline-styled blur / particles / atmosphere, which a CSS
-   class can't override.
-   backdrop-filter:blur is the single most expensive CSS op,
-   so these vars + the light-mode solid-tint swaps below are the biggest lever.
-*/
 :root {
-    --glass-blur: 40px; /* .glass and frosted panels */
+    --glass-blur: 40px;
     --glass-blur-strong: 60px;
-    /* .glass-featured (SoundWave blocks) */
     --glass-blur-soft: 28px;
-    /* .npb-glass (now-playing pill) */
 }
 
 [data-perf="medium"] {
@@ -57,9 +42,6 @@
     --glass-blur-soft: 0px;
 }
 
-/* Light mode: drop the live backdrop blur, keep the dark frosted look via a flat
-   solid tint (visually close on a dark UI, zero per-repaint blur cost).
-*/
 [data-perf="light"] .glass,
 [data-perf="light"] .glass-flat {
     backdrop-filter: none;
@@ -89,20 +71,12 @@
     display: none;
 }
 
-/* Global idle-animation gate — the WebView never throttles a hidden window, so
-   pause every animation while minimized (all modes, zero visual change while shown).
-*/
 [data-app-hidden="1"] *,
 [data-app-hidden="1"] *::before,
 [data-app-hidden="1"] *::after {
     animation-play-state: paused !important;
 }
 
-/* Light mode: stop decorative idle motion carried on CSS classes.
-   Inline-styled
-   motion (star fields, aurora orbs, prismatic text) is gated in JS via usePerfMode;
-   functional motion (spinners, dialog transitions, live progress) is left alone.
-*/
 [data-perf="light"] .skeleton-shimmer,
 [data-perf="light"] .soundwave-bar,
 [data-perf="light"] .vp-chev,
@@ -119,12 +93,6 @@
   box-sizing: border-box;
 }
 
-/* Drop sticky :hover while content scrolls under a stationary cursor — WebKitGTK
-   doesn't re-hit-test on wheel scroll, so cards otherwise "stick" or light up the
-   wrong tile.
-   The guard is set on scroll and cleared on pointer move/down (see
-   AppShell), so real hover/click intent re-enables instantly.
-*/
 main[data-scrolling] *,
 main[data-scrolling] *::before,
 main[data-scrolling] *::after {
@@ -151,12 +119,6 @@ body,
   overflow: hidden;
 }
 
-/* ── Text selection ─────────────────────────────────────────────
-   Desktop chrome should feel native: nothing is selectable by default (no more
-   highlighting a random div).
-   `body` covers Radix/sonner portals too. Real text
-   content opts back in with `.selectable`; inputs/editables are always selectable.
-*/
 body {
     user-select: none;
     -webkit-user-select: none;
@@ -171,7 +133,6 @@ select,
     -webkit-user-select: text;
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 5px;
 }
@@ -189,7 +150,6 @@ select,
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* ── Glass ──────────────────────────────────────────────────── */
 .glass {
   background: rgba(255, 255, 255, 0.025);
     backdrop-filter: blur(var(--glass-blur)) saturate(1.8);
@@ -206,7 +166,6 @@ select,
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* ── Shimmer ───────────────────────────────────────────────── */
 @keyframes skeleton-pulse {
     0%,
     100% {
@@ -228,7 +187,6 @@ select,
     }
 }
 
-/* ── Scrollbar hide ────────────────────────────────────────── */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -238,13 +196,11 @@ select,
   scrollbar-width: none;
 }
 
-/* ── Selection ─────────────────────────────────────────────── */
 ::selection {
   background: var(--color-accent-selection);
   color: white;
 }
 
-/* ── Focus reset ───────────────────────────────────────────── */
 :focus {
   outline: none;
 }
@@ -255,7 +211,6 @@ select,
   border-radius: 8px;
 }
 
-/* ── Feed animations ──────────────────────────────────────── */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -290,7 +245,6 @@ select,
   }
 }
 
-/* ── Dialog animations (Radix data-state) ────────────────── */
 @keyframes dialogOverlayIn {
   from {
     opacity: 0;
@@ -341,11 +295,6 @@ select,
   animation: dialogContentOut 0.15s var(--ease-apple) forwards;
 }
 
-/* ── Custom modal shell (components/ui/Modal.tsx) — JS-toggled transitions ──
- * data-state is flipped in JS (open ⇄ closed);
- * plain CSS transitions do the
- * animation. No Radix, no @keyframes — works reliably under WebKitGTK.
- */
 .modal-overlay {
   opacity: 0;
   transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -368,7 +317,6 @@ select,
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* ── Featured card glass ──────────────────────────────────── */
 .glass-featured {
   background: rgba(255, 255, 255, 0.02);
     backdrop-filter: blur(var(--glass-blur-strong)) saturate(2);
@@ -383,7 +331,6 @@ select,
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* ── Synced lyrics lines ─────────────────────────────────── */
 .lyric-line {
   cursor: pointer;
   padding: 10px 0;
@@ -438,7 +385,6 @@ select,
   transform: scale(0.968) translate3d(12px, 0, 0);
 }
 
-/* ── Lyrics pause marker (♪♪♪) ─────────────────────────── */
 .lyric-pause {
   cursor: default;
   display: flex;
@@ -524,7 +470,6 @@ select,
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
 }
 
-/* ── Active-line karaoke fill — driven by --lyric-progress (rAF) ── */
 .lyric-fill {
   position: relative;
   display: inline-block;
@@ -534,22 +479,15 @@ select,
   color: rgba(255, 255, 255, 0.32);
 }
 
-/* Light mode renders the active line as one .lyric-fill span (no per-char nodes),
-   so brighten its text directly — the per-char sweep that lights beauty is absent.
-*/
 [data-perf="light"] .lyric-line[data-state="active"] .lyric-fill {
     color: #fff;
 }
 
-/* A "word" wrapper just keeps characters from breaking mid-word.
-*/
 .lyric-word {
   display: inline-block;
   white-space: nowrap;
 }
 
-/* Per-character animated highlight driven by rAF.
-   --char-progress 0..1 sweeps left-to-right across the active line. */
 .lyric-char {
   display: inline-block;
   position: relative;
@@ -569,7 +507,6 @@ select,
   will-change: color, text-shadow, transform;
 }
 
-/* Past line — all chars fully lit */
 .lyric-line[data-state="past"] .lyric-char,
 .lyric-line[data-state="past-near"] .lyric-char {
   color: rgba(255, 255, 255, 1);
@@ -577,7 +514,6 @@ select,
   transform: none;
 }
 
-/* Next line — fully dim */
 .lyric-line[data-state="next"] .lyric-char,
 .lyric-line[data-state="next-near"] .lyric-char {
   color: rgba(255, 255, 255, 0.3);
@@ -585,12 +521,10 @@ select,
   transform: none;
 }
 
-/* Pause: kill micro-transitions while frozen */
 .lyrics-paused .lyric-line[data-state="active"] .lyric-char {
   transition-duration: 0ms;
 }
 
-/* ── Artwork zoom-in modal ─────────────────────────────────── */
 @keyframes zoomIn {
   from {
     opacity: 0;
@@ -606,7 +540,6 @@ select,
   animation: zoomIn 0.4s var(--ease-apple) both;
 }
 
-/* ── Star modal scroll ──────────────────────────────────────── */
 .star-scroll {
   mask-image: linear-gradient(
     to bottom,
@@ -637,7 +570,6 @@ select,
   background: rgba(168, 85, 247, 0.4);
 }
 
-/* ── Star subscription particles ────────────────────────────── */
 @keyframes star-float {
   from {
     transform: translateY(0) scale(1);
@@ -649,7 +581,6 @@ select,
   }
 }
 
-/* ── SoundWave hero block ──────────────────────────────────── */
 @keyframes sw-bar {
   0%,
   100% {
@@ -660,11 +591,6 @@ select,
   }
 }
 
-/* Particle drift — translate+opacity only (no scale).
-   Scale on ~20 elements
-   forces relayout of their composite rect every frame;
-   pure translate stays
-   on the GPU compositor. */
 @keyframes sw-drift {
   0% {
     transform: translate3d(0, 0, 0);
@@ -679,11 +605,6 @@ select,
   }
 }
 
-/* Aurora orbs carry a heavy `filter: blur()`; rotate/scale would force the
-   blur kernel to recompute every frame (huge GPU cost).
-   Stick to translate —
-   that's a cheap composite transform, blur result stays cached.
-*/
 @keyframes sw-aurora {
   0%,
   100% {
@@ -714,18 +635,6 @@ select,
   }
 }
 
-/* ── Liquid Glass Portal (vp-) — vibe-search CTA in the SoundWave hero ──
-   Composite-only motion: transform / opacity / box-shadow.
-   Pointer lensing
-   (--mx/--my/--px) is written from JS to CSS vars.
-   Blur layers (vp-aurora,
-   vp-lens) carry contain:strict + translateZ(0) to live on their own GPU
-   layer;
-   the content wrapper is isolation:isolate so its repaints never
-   recompute those blurs. */
-
-/* Idle chevron breathing;
-   accelerates on hover so the » "opens" toward search. */
 @keyframes vp-chev {
     0%,
     100% {
@@ -736,7 +645,6 @@ select,
     }
 }
 
-/* One-shot specular sweep across the lozenge on hover. */
 @keyframes vp-gleam {
     to {
         transform: translateX(560%);
@@ -756,8 +664,6 @@ select,
     opacity: 1;
 }
 
-/* Marching » chevrons.
-   will-change is intent-scoped to :hover only. */
 .vp-chev {
     animation: vp-chev 1.9s ease-in-out infinite;
 }
@@ -767,14 +673,10 @@ select,
     will-change: transform;
 }
 
-/* Gleam sweeps once per hover (skew lives on the inner span, unanimated).
-*/
 .vp-portal:hover .vp-gleam {
     animation: vp-gleam 1.05s var(--ease-apple);
 }
 
-/* Sigil lifts and its hairline ring expands on hover.
-*/
 .vp-sigil {
     transition: transform 0.45s var(--ease-apple);
 }
@@ -795,11 +697,6 @@ select,
     transform: scale(1.22);
 }
 
-/* Motes drift at rest, then are drawn toward the » well on hover.
-   The drift
-   animation is dropped (not paused) on hover so the base value + pull
-   transition take over — a paused animation would keep overriding transform.
-*/
 .vp-mote {
     animation-name: sw-drift;
     animation-timing-function: ease-in-out;
@@ -831,11 +728,6 @@ select,
   will-change: transform;
 }
 
-/* Progress-based waveform: two stacked bar layers, the accent one clipped
-   by --sw-progress (0%–100%).
-   Only the clip-path changes at runtime — GPU
-   composite-only, zero layout, zero React re-renders during playback.
-*/
 .sw-bars {
   --sw-progress: 0%;
 }
@@ -876,17 +768,6 @@ select,
   -webkit-text-fill-color: transparent;
 }
 
-/* ── Now Playing Bar — Liquid Pill Dock ──────────────────────────
-   A single floating frosted capsule.
-   The glass (backdrop-filter) lives in
-   its OWN isolated layer (.npb-glass);
-   all live/interactive content sits in
-   a sibling .npb-content layer ABOVE it, so 60fps progress repaints never
-   re-run the blur.
-   There is no idle motion; the looping "now playing" cues
-   (vinyl ring, eq bars, play pulse) run only while [data-playing] is true
-   (= playing AND window visible).
-*/
 .npb {
     position: absolute;
     left: 0;
@@ -897,7 +778,6 @@ select,
     align-items: flex-end;
     justify-content: center;
     padding: 11px 16px 15px;
-    /* overlay: empty areas around the pill let clicks fall through to the page */
     pointer-events: none;
     animation: npb-rise 0.7s var(--ease-apple) both;
 }
@@ -913,7 +793,6 @@ select,
     }
 }
 
-/* accent under-glow plate behind the pill (cheap gradient, no backdrop-filter) */
 .npb-underglow {
     position: absolute;
     bottom: 12px;
@@ -933,7 +812,6 @@ select,
     opacity: 1;
 }
 
-/* the floating capsule — frame carries shadow + the gentle float */
 .npb-dock {
     position: relative;
     z-index: 1;
@@ -945,7 +823,6 @@ select,
     0 0 64px -18px var(--color-accent-glow);
 }
 
-/* the ONLY backdrop-filter — isolated in its own GPU layer */
 .npb-glass {
     position: absolute;
     inset: 0;
@@ -969,7 +846,6 @@ select,
     transform: translateZ(0);
 }
 
-/* accent tint in the corner */
 .npb-glass::before {
     content: "";
     position: absolute;
@@ -978,7 +854,6 @@ select,
     opacity: 0.5;
 }
 
-/* fine grain for material realism */
 .npb-glass::after {
     content: "";
     position: absolute;
@@ -988,7 +863,6 @@ select,
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* content layer — repaints here never re-blur the glass below */
 .npb-content {
     position: relative;
     z-index: 1;
@@ -1005,6 +879,27 @@ select,
     gap: 12px;
 }
 
+/* ── NowPlayingBar: desktop vs phone row ──────────────────────
+   Two full .npb-row layouts exist in the DOM (see NowPlayingBar.tsx) — only
+   one should ever be visible. Tailwind's `hidden md:flex` / `flex md:hidden`
+   responsive classes were NOT taking effect in this build (both rows
+   rendered simultaneously), so the toggle is done here as a plain media
+   query instead — same breakpoint already used elsewhere in this file for
+   --mobile-nav-h / .npb positioning, so it's guaranteed consistent with
+   MobileNav's own breakpoint. */
+.npb-row-mobile {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .npb-row-desktop {
+        display: none;
+    }
+    .npb-row-mobile {
+        display: flex;
+    }
+}
+
 .npb-sep {
     width: 1px;
     height: 30px;
@@ -1012,7 +907,6 @@ select,
     background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.16), transparent);
 }
 
-/* meta (art + title) */
 .npb-meta {
     display: flex;
     align-items: center;
@@ -1188,7 +1082,6 @@ select,
     white-space: nowrap;
 }
 
-/* play orb — the hero */
 .npb-play {
     position: relative;
     width: 48px;
@@ -1248,7 +1141,6 @@ select,
     }
 }
 
-/* progress lane (full pill width) */
 .npb-lane {
     position: relative;
     display: flex;
@@ -1272,11 +1164,6 @@ select,
     font-weight: 700;
 }
 
-/* track loading (SC → SCD): the capsule traces its own glowing accent outline,
-   the artwork shows a % veil, and the halo brightens.
-   No idle motion — the ring
-   just fills to the real download progress via a transition.
-*/
 .npb-dock.is-loading {
     box-shadow: 0 30px 70px -22px rgba(0, 0, 0, 0.78),
     0 0 90px -10px var(--color-accent-glow);
@@ -1384,34 +1271,5 @@ select,
 @media (max-width: 767px) {
     #root > div:first-child {
         height: 100dvh;
-    }
-}
-
-/* ── NowPlayingBar: desktop vs phone row ──────────────────────
-   Two full .npb-row layouts exist in the DOM (see NowPlayingBar.tsx).
-   Only one should ever be visible.
-
-   Tailwind responsive classes (`hidden md:flex` / `flex md:hidden`)
-   are replaced with a plain CSS media query because they were not
-   taking effect correctly in this build.
-
-   Uses the same 767px breakpoint as MobileNav and .npb positioning.
-*/
-
-.npb-row-desktop {
-    display: flex;
-}
-
-.npb-row-mobile {
-    display: none;
-}
-
-@media (max-width: 767px) {
-    .npb-row-desktop {
-        display: none;
-    }
-
-    .npb-row-mobile {
-        display: flex;
     }
 }
