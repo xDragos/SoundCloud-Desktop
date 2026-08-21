@@ -83,12 +83,12 @@ export function NowPlayingBar() {
   const { currentTrack, playing, shuffle, repeat, abLoop } = player;
 
   const hidden = useDocHidden();
-const playingNow = playing && !hidden;
+  const playingNow = playing && !hidden;
 
-const isMobile = Platform.OS !== 'web';
+  const isMobile = Platform.OS !== 'web';
 
-const [hovered, setHovered] = useState(false);
-const [eqOpen, setEqOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [eqOpen, setEqOpen] = useState(false);
 
   const rise = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0.85)).current;
@@ -248,7 +248,7 @@ const [eqOpen, setEqOpen] = useState(false);
                     accentColor={accent.base}
                     glowColor={accent.glow}
                     onOpenEq={() => setEqOpen(true)}
-                />
+                  />
                 </View>
               </View>
 
@@ -267,6 +267,12 @@ const [eqOpen, setEqOpen] = useState(false);
           <DockLoadingRing />
         </View>
       </Animated.View>
+
+      {/* EQ este montat direct în NowPlayingBar, în afara Extras/Tuning popover-ului. */}
+      <EqualizerPanel
+        open={eqOpen}
+        onClose={() => setEqOpen(false)}
+      />
     </View>
   );
 }
