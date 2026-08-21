@@ -16,7 +16,6 @@ import { IconButton } from './IconButton';
 import { Slider } from './Slider';
 import { TuningBtn } from './TuningBtn';
 
-/** Правый кластер плеера: настройка звука, EQ, лирика, очередь, громкость. */
 export function Extras({
   volume,
   onSetVolume,
@@ -44,25 +43,17 @@ export function Extras({
   const t = useT();
 
   const openEqualizer = () => {
-    /*
-     * Important for iPhone:
-     *
-     * TuningBtn is a local popover, while Equalizer is mounted
-     * directly by NowPlayingBar.
-     *
-     * Close the local popover first, then tell NowPlayingBar
-     * to open the global EQ panel.
-     */
+    // Închide meniul Tuning înainte de a deschide EQ-ul.
     setTuningOpen(false);
+
+    // EQ-ul este controlat de NowPlayingBar.
     onOpenEq();
   };
 
   const toggleQueue = () => {
-    /*
-     * If the Tuning popover is open, close it before opening Queue.
-     * This keeps the mobile player clean as well.
-     */
+    // Închide meniul Tuning când deschidem Queue.
     setTuningOpen(false);
+
     panels.toggle('queue');
   };
 
