@@ -156,186 +156,73 @@ function usePresence(open: boolean, ms = 200) {
 }
 
 export function ModalContent({
-    children,
-    size = 'md',
-    className,
-    showClose = true,
-    zClass = 'z-[90]',
-    position = 'center',
-    overlay = true,
-    lockScroll = true,
-    closeOnBack = false,
-}: {
+                                 children,
+                                 size = 'md',
+                                 className,
+                                 showClose = true,
+                                 zClass = 'z-[90]',
+                             }: {
     children: ReactNode;
     size?: 'sm' | 'md' | 'lg' | 'xl';
     className?: string;
     showClose?: boolean;
     zClass?: string;
-    position?: 'center' | 'popover';
-    overlay?: boolean;
-    lockScroll?: boolean;
-    closeOnBack?: boolean;
 }) {
     const {open, setOpen, titleId} = useCtx();
     const {mounted, state} = usePresence(open, 200);
     const cardRef = useRef<HTMLDivElement>(null);
-    const historyStateRef = useRef(false);
 
-    /*
-     * Optional browser/Tauri Back support.
-     *
-     * When the popover opens we add one temporary history entry.
-     * Pressing Back consumes that entry and closes the popover instead
-     * of navigating away from the current page.
-     */
-    useEffect(() => {
-        if (!mounted || !closeOnBack) return;
-
-        history.pushState(
-            {
-                ...(window.history.state ?? {}),
-                __modalPopover: true,
-            },
-            '',
-        );
-
-        historyStateRef.current = true;
-
-        const onPopState = () => {
-            historyStateRef.current = false;
-            setOpen(false);
-        };
-
-        window.addEventListener('popstate', onPopState);
-
-        return () => {
-            window.removeEventListener('popstate', onPopState);
-
-            /*
-             * If the modal was closed using X, clicking outside, or
-             * programmatically, remove the temporary history entry.
-             *
-             * If Back already consumed it, historyStateRef is false
-             * and we don't navigate again.
-             */
-            if (historyStateRef.current) {
-                historyStateRef.current = false;
-                window.history.back();
-            }
-        };
-    }, [mounted, closeOnBack, setOpen]);
-
-    /*
-     * Esc to close.
-     */
+    // esc to close + body scroll lock while mounted
     useEffect(() => {
         if (!mounted) return;
-
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                setOpen(false);
-            }
+            if (e.key === 'Escape') setOpen(false);
         };
-
         document.addEventListener('keydown', onKey);
-
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const prevFocus = document.activeElement as HTMLElement | null;
         return () => {
             document.removeEventListener('keydown', onKey);
+            document.body.style.overflow = prevOverflow;
+            prevFocus?.focus?.();
         };
     }, [mounted, setOpen]);
 
-    /*
-     * Only regular centered modals lock page scrolling.
-     * Popovers such as Equalizer should not.
-     */
+    // focus the card once it opens
     useEffect(() => {
-        if (!mounted || !lockScroll) return;
-
-        const prevOverflow = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
-
-        return () => {
-            document.body.style.overflow = prevOverflow;
-        };
-    }, [mounted, lockScroll]);
-
-    /*
-     * Close a popover when clicking outside its card.
-     */
-    useEffect(() => {
-        if (!mounted || overlay) return;
-
-        const onPointerDown = (e: PointerEvent) => {
-            const target = e.target as Node | null;
-
-            if (target && cardRef.current?.contains(target)) {
-                return;
-            }
-
-            setOpen(false);
-        };
-
-        document.addEventListener('pointerdown', onPointerDown);
-
-        return () => {
-            document.removeEventListener('pointerdown', onPointerDown);
-        };
-    }, [mounted, overlay, setOpen]);
-
-    /*
-     * Focus only normal centered dialogs.
-     * The Equalizer popover shouldn't steal focus from the More menu.
-     */
-    useEffect(() => {
-        if (state === 'open' && position === 'center') {
-            cardRef.current?.focus();
-        }
-    }, [state, position]);
+        if (state === 'open') cardRef.current?.focus();
+    }, [state]);
 
     if (!mounted) return null;
 
-    // Desktop keeps the original bottom-right anchored popover corner.
-    // Phone width (max-md) centers it on screen instead: the old
-    // bottom-[184px]/right-3 offset was tuned before .npb became `position:
-    // fixed` and MobileNav was added, and no longer lands inside the visible
-    // viewport on current layouts — centering is layout-agnostic and can't
-    // drift out of view again.
-    const positionClass =
-        position === 'popover'
-            ? 'fixed bottom-[92px] right-6 left-auto top-auto max-md:left-1/2 max-md:right-auto max-md:top-1/2 max-md:bottom-auto max-md:-translate-x-1/2 max-md:-translate-y-1/2'
-            : 'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2';
-
     return createPortal(
         <>
-            {overlay && (
-                <div
-                    className={`modal-overlay fixed inset-0 ${zClass} bg-black/60 backdrop-blur-sm`}
-                    data-state={state}
-                    onClick={() => setOpen(false)}
-                />
-            )}
-
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: esc handled globally above */}
+            <div
+                className={`modal-overlay fixed inset-0 ${zClass} bg-black/60 backdrop-blur-sm`}
+                data-state={state}
+                onClick={() => setOpen(false)}
+            />
             <div
                 ref={cardRef}
                 role="dialog"
-                aria-modal={overlay ? true : undefined}
+                aria-modal="true"
                 aria-labelledby={titleId}
-                tabIndex={position === 'center' ? -1 : undefined}
+                tabIndex={-1}
                 data-state={state}
-                className={`modal-content ${zClass} ${positionClass} w-full ${WIDTH[size]} max-w-[95vw] outline-none`}
+                className={`modal-content fixed ${zClass} left-1/2 top-1/2 w-full ${WIDTH[size]} max-w-[95vw] outline-none`}
             >
                 <div
                     className={`relative overflow-hidden rounded-[1.75rem] ${className ?? ''}`}
                     style={{
                         border: '0.5px solid rgba(255,255,255,0.12)',
-                        background:
-                            'linear-gradient(168deg, rgba(23,22,28,0.97), rgba(10,9,13,0.99))',
+                        background: 'linear-gradient(168deg, rgba(23,22,28,0.97), rgba(10,9,13,0.99))',
                         boxShadow:
                             '0 40px 110px rgba(0,0,0,0.62), 0 0 80px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.08)',
                     }}
                 >
-                    {/* soft accent wash from the top */}
+                    {/* soft accent wash from the top — the accent, kept subtle */}
                     <span
                         aria-hidden
                         className="pointer-events-none absolute inset-x-0 top-0 h-28"
@@ -345,7 +232,6 @@ export function ModalContent({
                             opacity: 0.7,
                         }}
                     />
-
                     {/* specular hairline */}
                     <span
                         aria-hidden
@@ -355,7 +241,6 @@ export function ModalContent({
                                 'linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent)',
                         }}
                     />
-
                     {showClose && (
                         <button
                             type="button"
@@ -363,13 +248,10 @@ export function ModalContent({
                             onClick={() => setOpen(false)}
                             className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-white/40 hover:text-white/90 hover:bg-white/[0.08] transition-all duration-200 cursor-pointer"
                         >
-                            <X size={16} />
+                            <X size={16}/>
                         </button>
                     )}
-
-                    <div className="relative">
-                        {children}
-                    </div>
+                    <div className="relative">{children}</div>
                 </div>
             </div>
         </>,
