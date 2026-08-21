@@ -1,62 +1,62 @@
 import * as Popover from '@radix-ui/react-popover';
 import * as Slider from '@radix-ui/react-slider';
-import {useQuery, useQueryClient} from '@tanstack/react-query';
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {useShallow} from 'zustand/shallow';
-import {api} from '../../lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { api } from '../../lib/api';
 import {
-    getCurrentTime,
-    getDownloadProgress,
-    getDuration,
-    handlePrev,
-    seek,
-    subscribe,
+  getCurrentTime,
+  getDownloadProgress,
+  getDuration,
+  handlePrev,
+  seek,
+  subscribe,
 } from '../../lib/audio';
-import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
-import {art, formatTime} from '../../lib/formatters';
-import {invalidateAllLikesCache} from '../../lib/hooks';
-import {MoreHorizontal} from 'lucide-react';
+import { toggleDislike, useDislikeStatus } from '../../lib/dislikes';
+import { art, formatTime } from '../../lib/formatters';
+import { invalidateAllLikesCache } from '../../lib/hooks';
+import { MoreHorizontal } from 'lucide-react';
 import {
-    audioLines16,
-    Heart,
-    listMusic16,
-    MicVocal,
-    pauseBlack20,
-    playBlack20,
-    repeat1Icon16,
-    repeatAbIcon16,
-    repeatIcon16,
-    shuffleIcon16,
-    skipBack20,
-    skipForward20,
-    slidersHorizontal16,
-    ThumbsDown,
-    volume1Icon16,
-    volume2Icon16,
-    volumeXIcon16,
+  audioLines16,
+  Heart,
+  listMusic16,
+  MicVocal,
+  pauseBlack20,
+  playBlack20,
+  repeat1Icon16,
+  repeatAbIcon16,
+  repeatIcon16,
+  shuffleIcon16,
+  skipBack20,
+  skipForward20,
+  slidersHorizontal16,
+  ThumbsDown,
+  volume1Icon16,
+  volume2Icon16,
+  volumeXIcon16,
 } from '../../lib/icons';
-import {optimisticToggleLike} from '../../lib/likes';
-import {usePerfMode} from '../../lib/perf';
-import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
-import {useLyricsStore} from '../../stores/lyrics';
+import { optimisticToggleLike } from '../../lib/likes';
+import { usePerfMode } from '../../lib/perf';
+import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../lib/track-display';
+import { useLyricsStore } from '../../stores/lyrics';
 import {
-    AB_MIN_GAP,
-    getEffectivePitchSemitones,
-    PITCH_SEMITONES_MAX,
-    PITCH_SEMITONES_MIN,
-    PITCH_SEMITONES_STEP,
-    PLAYBACK_RATE_MAX,
-    PLAYBACK_RATE_MIN,
-    PLAYBACK_RATE_STEP,
-    type Track,
-    usePlayerStore,
+  AB_MIN_GAP,
+  getEffectivePitchSemitones,
+  PITCH_SEMITONES_MAX,
+  PITCH_SEMITONES_MIN,
+  PITCH_SEMITONES_STEP,
+  PLAYBACK_RATE_MAX,
+  PLAYBACK_RATE_MIN,
+  PLAYBACK_RATE_STEP,
+  type Track,
+  usePlayerStore,
 } from '../../stores/player';
-import {useSettingsStore} from '../../stores/settings';
-import {ArtistNameLinks} from '../music/ArtistNameLinks';
-import {EqualizerPanel} from '../music/EqualizerPanel';
-import {UploadKindDot} from '../music/UploadKindDot';
+import { useSettingsStore } from '../../stores/settings';
+import { ArtistNameLinks } from '../music/ArtistNameLinks';
+import { EqualizerPanel } from '../music/EqualizerPanel';
+import { UploadKindDot } from '../music/UploadKindDot';
 
 /* ── Track loading progress (SC → SCD download) ──────────────── */
 
@@ -667,27 +667,6 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
-const EqBtn = React.memo(
-  ({ onOpen }: { onOpen?: () => void }) => {
-    const eqEnabled = useSettingsStore((s) => s.eqEnabled);
-
-    return (
-      <EqualizerPanel>
-        <button
-          type="button"
-          onPointerDown={() => {
-            onOpen?.();
-          }}
-          className={btnClass(eqEnabled, 'sm')}
-        >
-          {audioLines16}
-        </button>
-      </EqualizerPanel>
-    );
-  },
-);
-
-
 /* ── Playback rate (speed) slider ─────────────────────────────── */
 
 const formatPlaybackRate = (rate: number) =>
@@ -859,30 +838,56 @@ export const PitchSlider = React.memo(() => {
   );
 });
 
-const EqBtn = React.memo(
-  ({ onOpen }: { onOpen?: () => void }) => {
-    const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+/* ── Tuning Popover Button ────────────────────────────────────── */
 
+export const TuningBtn = React.memo(
+  ({ open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void }) => {
     return (
-      <EqualizerPanel>
-        <button
-          type="button"
-          onClick={onOpen}
-          className={btnClass(eqEnabled, 'sm')}
-        >
-          {audioLines16}
-        </button>
-      </EqualizerPanel>
+      <Popover.Root open={open} onOpenChange={onOpenChange}>
+        <Popover.Trigger asChild>
+          <button type="button" className={btnClass(false, 'sm')}>
+            {slidersHorizontal16}
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            side="top"
+            align="center"
+            sideOffset={10}
+            className="z-[200] w-[260px] space-y-3 rounded-[18px] border border-white/[0.10] bg-[#101012]/96 p-3.5 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl outline-none"
+          >
+            <PlaybackRateSlider />
+            <PitchModeToggle />
+            <PitchSlider />
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
     );
   },
 );
 
-/* ── Mobile "more" menu ────────────────────────────────────────
- * Phone width collapses the row to art + shuffle + prev + play + next + •••.
- * Everything else (reactions, repeat, AB-loop, tuning, EQ, lyrics, queue,
- * volume) moves here, stacked vertically in one glass popover — same visual
- * language as TuningBtn's popover, so nothing new is invented and nothing
- * ever overlaps. */
+/* ── Equalizer Button ─────────────────────────────────────────── */
+
+const EqBtn = React.memo(({ onOpen }: { onOpen?: () => void }) => {
+  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+
+  return (
+    <EqualizerPanel>
+      <button
+        type="button"
+        onPointerDown={() => {
+          onOpen?.();
+        }}
+        className={btnClass(eqEnabled, 'sm')}
+      >
+        {audioLines16}
+      </button>
+    </EqualizerPanel>
+  );
+});
+
+/* ── Mobile "more" menu ──────────────────────────────────────── */
+
 const MoreMenuRow = ({ children }: { children: React.ReactNode }) => (
   <div className="flex items-center justify-between gap-3 px-1 py-1.5">{children}</div>
 );
@@ -896,7 +901,6 @@ const MoreMenu = React.memo(() => {
   const urn = usePlayerStore((s) => s.currentTrack?.urn);
   const [queueOpenLocal, setQueueOpenLocal] = useState(false);
   const [open, setOpen] = useState(false);
-  const [eqOpen, setEqOpen] = useState(false);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -928,27 +932,20 @@ const MoreMenu = React.memo(() => {
             )}
 
             <MoreMenuRow>
-  <MoreMenuLabel>{t('kb.groupPlayback')}</MoreMenuLabel>
-  <div className="flex items-center gap-0.5">
-    <RepeatBtn />
-    <AbLoopBtn />
-  </div>
-</MoreMenuRow>
+              <MoreMenuLabel>{t('kb.groupPlayback')}</MoreMenuLabel>
+              <div className="flex items-center gap-0.5">
+                <RepeatBtn />
+                <AbLoopBtn />
+              </div>
+            </MoreMenuRow>
 
-<MoreMenuRow>
-  <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
-  <div className="flex items-center gap-0.5">
-    <TuningBtn />
-    <EqBtn
-      open={eqOpen}
-      onOpenChange={(v) => {
-        setEqOpen(v);
-        if (v) setOpen(false);
-      }}
-    />
-  </div>
-</MoreMenuRow>
-
+            <MoreMenuRow>
+              <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
+              <div className="flex items-center gap-0.5">
+                <TuningBtn />
+                <EqBtn onOpen={() => setOpen(false)} />
+              </div>
+            </MoreMenuRow>
 
             <MoreMenuRow>
               <MoreMenuLabel>{t('kb.groupPanels')}</MoreMenuLabel>
@@ -1120,6 +1117,7 @@ export const NowPlayingBar = React.memo(
     const hidden = useDocHidden();
     const playingNow = isPlaying && !hidden;
     const loadProgress = useLoadProgress();
+    const [tuningOpen, setTuningOpen] = useState(false);
 
     return (
       <div className="npb">
@@ -1154,8 +1152,13 @@ export const NowPlayingBar = React.memo(
               <div className="npb-sep" />
 
               <div className="flex items-center gap-0.5">
-                <TuningBtn />
-                <EqBtn />
+                <TuningBtn open={tuningOpen} onOpenChange={setTuningOpen} />
+
+                <EqBtn
+                  onOpen={() => {
+                    setTuningOpen(false);
+                  }}
+                />
                 <LyricsBtn />
                 <QueueBtn onClick={onQueueToggle} active={queueOpen} />
                 <ControlVolumeBtn size="sm" />
