@@ -858,54 +858,23 @@ export const PitchSlider = React.memo(() => {
   );
 });
 
-const TuningBtn = React.memo(() => {
-  const { t } = useTranslation();
-  const playbackRate = usePlayerStore((s) => s.playbackRate);
-  const pitchSemitones = usePlayerStore((s) => s.pitchSemitones);
-  const pitchMode = usePlayerStore((s) => s.pitchControlMode);
-  const isActive =
-    Math.abs(playbackRate - 1) >= 0.001 ||
-    (pitchMode === 'manual' && Math.abs(pitchSemitones) >= 0.001);
+const EqBtn = React.memo(
+  ({ onOpen }: { onOpen?: () => void }) => {
+    const eqEnabled = useSettingsStore((s) => s.eqEnabled);
 
-  return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button type="button" title={t('player.soundTuning')} className={btnClass(isActive, 'sm')}>
-          {slidersHorizontal16}
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          side="top"
-          align="end"
-          sideOffset={10}
-          collisionPadding={12}
-          className="z-[200] w-[300px] origin-bottom-right rounded-[18px] border border-white/[0.10] bg-[#101012]/96 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl outline-none data-[state=open]:animate-fade-in-up"
+    return (
+      <EqualizerPanel>
+        <button
+          type="button"
+          onClick={onOpen}
+          className={btnClass(eqEnabled, 'sm')}
         >
-          <div className="absolute inset-x-0 top-0 h-12 rounded-t-[18px] bg-gradient-to-b from-white/[0.05] to-transparent pointer-events-none" />
-          <div className="relative flex items-center gap-2 px-1 pb-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-white/55">
-              {slidersHorizontal16}
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/65">
-                {t('player.soundTuning')}
-              </p>
-              <p className="text-[10px] text-white/30">
-                {t('player.playbackSpeed')} · {t('player.pitch')}
-              </p>
-            </div>
-          </div>
-          <div className="relative space-y-2">
-            <PitchModeToggle />
-            <PlaybackRateSlider />
-            <PitchSlider />
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-});
+          {audioLines16}
+        </button>
+      </EqualizerPanel>
+    );
+  },
+);
 
 /* ── Mobile "more" menu ────────────────────────────────────────
  * Phone width collapses the row to art + shuffle + prev + play + next + •••.
