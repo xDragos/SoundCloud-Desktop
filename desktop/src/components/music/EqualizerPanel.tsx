@@ -154,15 +154,9 @@ const PresetBtn = React.memo(function PresetBtn({
 
 export const EqualizerPanel = React.memo(function EqualizerPanel({
   children,
-  open,
-  onOpenChange,
 }: {
   children: React.ReactNode;
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
 }) {
-
-
   const { t, i18n } = useTranslation();
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   const eqGains = useSettingsStore((s) => s.eqGains);
@@ -197,19 +191,11 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
     setEqPreset('flat');
   }, [setEqGains, setEqPreset]);
 
-return (
-    <Modal open={open} onOpenChange={onOpenChange}>
-        <ModalTrigger asChild>{children}</ModalTrigger>
-
-        <ModalContent
-            size="md"
-            showClose={false}
-            zClass="z-[100]"
-            position="popover"
-            overlay={false}
-            lockScroll={false}
-            closeOnBack
-        >
+  return (
+      <Modal>
+          <ModalTrigger asChild>{children}</ModalTrigger>
+          <ModalContent size="md" showClose={false} zClass="z-[90]">
+              {/* Header */}
               <div className="flex items-center justify-between px-6 pt-5 pb-3">
                   <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center">
