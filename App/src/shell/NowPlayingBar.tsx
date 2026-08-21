@@ -675,7 +675,9 @@ const EqBtn = React.memo(
       <EqualizerPanel>
         <button
           type="button"
-          onClick={onOpen}
+          onPointerDown={() => {
+            onOpen?.();
+          }}
           className={btnClass(eqEnabled, 'sm')}
         >
           {audioLines16}
