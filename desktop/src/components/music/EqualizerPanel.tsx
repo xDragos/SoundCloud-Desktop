@@ -159,8 +159,9 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
 }: {
   children: React.ReactNode;
   open?: boolean;
-  onOpenChange?: (v: boolean) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
+
 
   const { t, i18n } = useTranslation();
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
