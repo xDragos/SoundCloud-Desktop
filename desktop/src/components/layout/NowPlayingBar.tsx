@@ -9,6 +9,7 @@ import { PillTrack } from './now-playing/PillTrack';
 import { ProgressLane } from './now-playing/ProgressLane';
 import { ReactCluster } from './now-playing/ReactCluster';
 import { Transport } from './now-playing/Transport';
+import { EqualizerPanel } from './EqualizerPanel';
 
 const sep = (
   <View
@@ -82,11 +83,12 @@ export function NowPlayingBar() {
   const { currentTrack, playing, shuffle, repeat, abLoop } = player;
 
   const hidden = useDocHidden();
-  const playingNow = playing && !hidden;
+const playingNow = playing && !hidden;
 
-  const isMobile = Platform.OS !== 'web';
+const isMobile = Platform.OS !== 'web';
 
-  const [hovered, setHovered] = useState(false);
+const [hovered, setHovered] = useState(false);
+const [eqOpen, setEqOpen] = useState(false);
 
   const rise = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0.85)).current;
