@@ -1,389 +1,304 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import {
-  AudioLinesIcon,
-  CloseIcon,
-  GlassSurface,
-  modalGlass,
-  PowerIcon,
-  RotateCcwIcon,
-  ScText,
-} from '@sc/ui';
-import { useEq } from '../player/EqContext';
-import { EQ_BAND_COUNT, EQ_LABELS, EQ_PRESETS } from '../player/eq-presets';
-import { BandSlider } from './equalizer/BandSlider';
-import { PresetChip } from './equalizer/PresetChip';
+import React, {useCallback, useRef} from 'react';
+import {useTranslation} from 'react-i18next';
+import {EQ_BAND_COUNT, EQ_LABELS, EQ_MAX_GAIN, EQ_MIN_GAIN, EQ_PRESETS,} from '../../lib/equalizer';
+import {AudioLines, Power, RotateCcw, X} from '../../lib/icons';
+import {useSettingsStore} from '../../stores/settings';
+import {Modal, ModalClose, ModalContent, ModalTrigger} from '../ui/Modal';
 
-const CARD_WIDTH = 520;
-const SCALE_HEIGHT = 140;
+/* ── Single Band Slider ─────────────────────────────────────── */
 
-function EqHeader({
-  enabled,
-  onToggle,
-  onReset,
-  onClose,
+const BandSlider = React.memo(function BandSlider({
+  index,
+  gain,
+  label,
+  onChange,
 }: {
-  enabled: boolean;
-  onToggle: () => void;
-  onReset: () => void;
-  onClose: () => void;
+  index: number;
+  gain: number;
+  label: string;
+  onChange: (index: number, gain: number) => void;
 }) {
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 18,
-        paddingTop: 16,
-        paddingBottom: 14,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            backgroundColor: 'rgba(255,255,255,0.06)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <AudioLinesIcon size={18} color="rgba(255,255,255,0.6)" />
-        </View>
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
 
-        <View style={{ flexShrink: 1 }}>
-          <ScText
-            numberOfLines={1}
-            style={{
-              fontSize: 17,
-              fontWeight: '700',
-              color: 'rgba(255,255,255,0.9)',
-            }}
-          >
-            Эквалайзер
-          </ScText>
+  const calcGain = useCallback((clientY: number) => {
+    const track = trackRef.current;
+    if (!track) return 0;
+    const rect = track.getBoundingClientRect();
+    const pct = 1 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    return Math.round((pct * (EQ_MAX_GAIN - EQ_MIN_GAIN) + EQ_MIN_GAIN) * 2) / 2;
+  }, []);
 
-          <ScText
-            numberOfLines={1}
-            style={{
-              marginTop: 1,
-              fontSize: 10,
-              color: 'rgba(255,255,255,0.32)',
-            }}
-          >
-            Настройка звука
-          </ScText>
-        </View>
-      </View>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-        <Pressable
-          onPress={onToggle}
-          hitSlop={6}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            borderWidth: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: enabled
-              ? 'rgba(52,211,153,0.15)'
-              : 'rgba(255,255,255,0.04)',
-            borderColor: enabled
-              ? 'rgba(52,211,153,0.2)'
-              : 'rgba(255,255,255,0.06)',
-          }}
-        >
-          <PowerIcon
-            size={15}
-            color={enabled ? 'rgb(52,211,153)' : 'rgba(255,255,255,0.25)'}
-          />
-        </Pressable>
-
-        <Pressable
-          onPress={onReset}
-          hitSlop={6}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.06)',
-            backgroundColor: 'rgba(255,255,255,0.04)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <RotateCcwIcon size={14} color="rgba(255,255,255,0.3)" />
-        </Pressable>
-
-        {/* X */}
-        <Pressable
-          onPress={onClose}
-          hitSlop={6}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.08)',
-            backgroundColor: 'rgba(255,255,255,0.055)',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <CloseIcon size={15} color="rgba(255,255,255,0.65)" />
-        </Pressable>
-      </View>
-    </View>
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      dragging.current = true;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      onChange(index, calcGain(e.clientY));
+    },
+    [index, onChange, calcGain],
   );
-}
 
-function EqBandsRow({
-  enabled,
-  gains,
-  onDrag,
-}: {
-  enabled: boolean;
-  gains: number[];
-  onDrag: (index: number, gain: number) => void;
-}) {
-  return (
-    <View
-      style={{
-        paddingHorizontal: 18,
-        paddingBottom: 18,
-        opacity: enabled ? 1 : 0.3,
-      }}
-      pointerEvents={enabled ? 'auto' : 'none'}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-        <View
-          style={{
-            height: SCALE_HEIGHT,
-            justifyContent: 'space-between',
-            marginRight: 7,
-            marginTop: -22,
-          }}
-        >
-          <ScText style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
-            +12
-          </ScText>
-
-          <ScText style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
-            0
-          </ScText>
-
-          <ScText style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
-            -12
-          </ScText>
-        </View>
-
-        <View
-          style={{
-            flex: 1,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            minWidth: 0,
-          }}
-        >
-          {Array.from({ length: EQ_BAND_COUNT }, (_, i) => (
-            <BandSlider
-              key={i}
-              gain={gains[i] ?? 0}
-              label={EQ_LABELS[i]}
-              onDrag={(gain) => onDrag(i, gain)}
-            />
-          ))}
-        </View>
-      </View>
-    </View>
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragging.current) return;
+      onChange(index, calcGain(e.clientY));
+    },
+    [index, onChange, calcGain],
   );
-}
 
-function EqPresets({
-  enabled,
-  preset,
-  onPick,
-}: {
-  enabled: boolean;
-  preset: string;
-  onPick: (id: string) => void;
-}) {
+  const handlePointerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
+
+  // Normalized 0-1 position
+  const pct = (gain - EQ_MIN_GAIN) / (EQ_MAX_GAIN - EQ_MIN_GAIN);
+  const isPositive = gain > 0;
+  const isNegative = gain < 0;
+
   return (
-    <View
-      style={{
-        paddingHorizontal: 18,
-        paddingBottom: 18,
-        opacity: enabled ? 1 : 0.3,
-      }}
-      pointerEvents={enabled ? 'auto' : 'none'}
-    >
-      <ScText
-        style={{
-          fontSize: 11,
-          color: 'rgba(255,255,255,0.3)',
-          fontWeight: '500',
-          marginBottom: 9,
-        }}
+    <div className="flex flex-col items-center gap-2 select-none">
+      {/* Gain value */}
+      <span
+        className={`text-[10px] tabular-nums font-semibold h-4 ${
+          isPositive ? 'text-emerald-400' : isNegative ? 'text-blue-400' : 'text-white/30'
+        }`}
       >
-        Пресеты
-      </ScText>
+        {gain > 0 ? '+' : ''}
+        {gain.toFixed(1)}
+      </span>
 
-      <View
-        style={{
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          gap: 6,
-        }}
+      {/* Track */}
+      <div
+        ref={trackRef}
+        className="relative w-7 h-[140px] flex items-center justify-center cursor-pointer touch-none"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
       >
-        {Object.entries(EQ_PRESETS).map(([id, p]) => (
-          <PresetChip
-            key={id}
-            label={p.labelRu}
-            active={preset === id}
-            onPress={() => onPick(id)}
-          />
-        ))}
+        {/* Rail */}
+        <div className="absolute w-[3px] h-full rounded-full bg-white/[0.06]" />
 
-        {preset === 'custom' && (
-          <PresetChip
-            label="Пользовательский"
-            active
-            onPress={() => {}}
-          />
-        )}
-      </View>
-    </View>
+        {/* Center line */}
+        <div className="absolute w-2 h-px bg-white/10 left-1/2 top-1/2 -translate-x-1/2" />
+
+        {/* Fill */}
+        <div
+          className="absolute w-[3px] rounded-full left-1/2 -translate-x-1/2 transition-colors duration-150"
+          style={{
+            bottom: gain >= 0 ? '50%' : `${pct * 100}%`,
+            top: gain >= 0 ? `${(1 - pct) * 100}%` : '50%',
+            background: isPositive
+              ? 'linear-gradient(to top, rgba(52,211,153,0.6), rgba(52,211,153,0.2))'
+              : isNegative
+                ? 'linear-gradient(to bottom, rgba(96,165,250,0.6), rgba(96,165,250,0.2))'
+                : 'transparent',
+          }}
+        />
+
+        {/* Thumb */}
+        <div
+          className="absolute left-1/2 -translate-x-1/2 w-4 h-4 rounded-full transition-shadow duration-150 will-change-transform"
+          style={{
+            bottom: `calc(${pct * 100}% - 8px)`,
+            background: isPositive
+              ? 'rgb(52,211,153)'
+              : isNegative
+                ? 'rgb(96,165,250)'
+                : 'rgba(255,255,255,0.5)',
+            boxShadow:
+              gain !== 0
+                ? isPositive
+                  ? '0 0 12px rgba(52,211,153,0.4)'
+                  : '0 0 12px rgba(96,165,250,0.4)'
+                : 'none',
+          }}
+        />
+      </div>
+
+      {/* Frequency label */}
+      <span className="text-[9px] text-white/30 font-medium">{label}</span>
+    </div>
   );
-}
+});
 
-export function EqualizerPanel({
+/* ── Preset Button ──────────────────────────────────────────── */
+
+const PresetBtn = React.memo(function PresetBtn({
+  id,
+  label,
+  active,
+  onClick,
+}: {
+  id: string;
+  label: string;
+  active: boolean;
+  onClick: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(id)}
+      className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all duration-200 cursor-pointer border ${
+        active
+          ? 'bg-white/[0.1] text-white/90 border-white/[0.12] shadow-sm'
+          : 'bg-white/[0.02] text-white/35 border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
+      }`}
+    >
+      {label}
+    </button>
+  );
+});
+
+/* ── Main Panel ─────────────────────────────────────────────── */
+
+export const EqualizerPanel = React.memo(function EqualizerPanel({
+  children,
   open,
-  onClose,
+  onOpenChange,
 }: {
-  open: boolean;
-  onClose: () => void;
+  /** Trigger element (desktop toolbar button). Omit when `open`/`onOpenChange`
+   *  drive this panel externally (mobile "more" menu) — the panel is then
+   *  mounted directly by the caller with no trigger of its own. */
+  children?: React.ReactNode;
+  /** Controlled open state. When provided, this panel no longer manages its
+   *  own open/closed state — the caller (e.g. NowPlayingBar, kept mounted
+   *  above any popover) owns it, so closing an unrelated popover elsewhere
+   *  can never unmount this panel out from under the user. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const {
-    enabled,
-    gains,
-    preset,
-    setEnabled,
-    setBand,
-    applyPreset,
-    reset,
-  } = useEq();
+  const { t, i18n } = useTranslation();
+  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+  const eqGains = useSettingsStore((s) => s.eqGains);
+  const eqPreset = useSettingsStore((s) => s.eqPreset);
+  const setEqEnabled = useSettingsStore((s) => s.setEqEnabled);
+  const setEqGains = useSettingsStore((s) => s.setEqGains);
+  const setEqPreset = useSettingsStore((s) => s.setEqPreset);
+  const setEqBand = useSettingsStore((s) => s.setEqBand);
 
-  const anim = useRef(new Animated.Value(0)).current;
+  const isRu = i18n.language === 'ru';
 
-  useEffect(() => {
-    if (!open) return;
-
-    anim.setValue(0);
-
-    Animated.timing(anim, {
-      toValue: 1,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [open, anim]);
-
-  if (!open) return null;
-
-  const translateY = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
-
-  const isMobile = Platform.OS !== 'web';
-
-  return (
-    <View
-      style={[
-        StyleSheet.absoluteFill,
-        {
-          zIndex: 200,
-          elevation: 200,
-        },
-      ]}
-    >
-      {/* Background */}
-      <Pressable
-        onPress={onClose}
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: 'rgba(0,0,0,0.62)',
-          },
-        ]}
-      />
-
-      <View
-        pointerEvents="box-none"
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            alignItems: 'center',
-            justifyContent: isMobile ? 'flex-end' : 'center',
-            paddingHorizontal: isMobile ? 0 : 16,
-            paddingBottom: isMobile ? 0 : 16,
-            paddingTop: isMobile ? 0 : 16,
-          },
-        ]}
-      >
-        <Animated.View
-          style={{
-            width: isMobile ? '100%' : CARD_WIDTH,
-            maxWidth: isMobile ? '100%' : '92%',
-            maxHeight: isMobile ? '92%' : undefined,
-            opacity: anim,
-            transform: [{ translateY }],
-          }}
-        >
-          <GlassSurface
-            recipe={modalGlass}
-            style={{
-              borderTopLeftRadius: isMobile ? 24 : undefined,
-              borderTopRightRadius: isMobile ? 24 : undefined,
-              borderBottomLeftRadius: isMobile ? 0 : undefined,
-              borderBottomRightRadius: isMobile ? 0 : undefined,
-              overflow: 'hidden',
-            }}
-          >
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              contentContainerStyle={{
-                paddingBottom: isMobile ? 10 : 0,
-              }}
-            >
-              <EqHeader
-                enabled={enabled}
-                onToggle={() => setEnabled(!enabled)}
-                onReset={reset}
-                onClose={onClose}
-              />
-
-              <EqBandsRow
-                enabled={enabled}
-                gains={gains}
-                onDrag={setBand}
-              />
-
-              <EqPresets
-                enabled={enabled}
-                preset={preset}
-                onPick={applyPreset}
-              />
-            </ScrollView>
-          </GlassSurface>
-        </Animated.View>
-      </View>
-    </View>
+  const handleBandChange = useCallback(
+    (index: number, gain: number) => {
+      setEqBand(index, gain);
+    },
+    [setEqBand],
   );
-}
+
+  const handlePreset = useCallback(
+    (id: string) => {
+      const preset = EQ_PRESETS[id];
+      if (preset) {
+        setEqGains([...preset.gains]);
+        setEqPreset(id);
+      }
+    },
+    [setEqGains, setEqPreset],
+  );
+
+  const handleReset = useCallback(() => {
+    setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    setEqPreset('flat');
+  }, [setEqGains, setEqPreset]);
+
+return (
+    <Modal open={open} onOpenChange={onOpenChange}>
+        {children && <ModalTrigger asChild>{children}</ModalTrigger>}
+
+        <ModalContent
+            size="md"
+            showClose={false}
+            zClass="z-[100]"
+            position="popover"
+            overlay={false}
+            lockScroll={false}
+            closeOnBack
+        >
+              <div className="flex items-center justify-between px-6 pt-5 pb-3">
+                  <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center">
+                          <AudioLines size={18} className="text-white/60"/>
+                      </div>
+                      <h2 className="text-[17px] font-bold text-white/90 tracking-tight">{t('eq.title')}</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                      {/* Power toggle */}
+                      <button
+                          type="button"
+                          onClick={() => setEqEnabled(!eqEnabled)}
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer border ${
+                              eqEnabled
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20 shadow-[0_0_12px_rgba(52,211,153,0.15)]'
+                                  : 'bg-white/[0.04] text-white/25 border-white/[0.06] hover:text-white/50'
+                          }`}
+                      >
+                          <Power size={15}/>
+                      </button>
+                      {/* Reset */}
+                      <button
+                          type="button"
+                          onClick={handleReset}
+                          className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/25 hover:text-white/50 transition-all cursor-pointer"
+                      >
+                          <RotateCcw size={14}/>
+                      </button>
+                      {/* Close */}
+                      <ModalClose
+                          className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/25 hover:text-white/50 transition-all cursor-pointer">
+                          <X size={15}/>
+                      </ModalClose>
+                  </div>
+              </div>
+
+              {/* dB scale + Sliders */}
+              <div
+                  className={`px-6 pb-4 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-30 pointer-events-none'}`}
+              >
+                  <div className="flex items-end gap-0">
+                      {/* dB labels */}
+                      <div className="flex flex-col justify-between h-[140px] mr-2 -mt-6">
+                          <span className="text-[9px] text-white/20 tabular-nums">+12</span>
+                          <span className="text-[9px] text-white/20 tabular-nums">0</span>
+                          <span className="text-[9px] text-white/20 tabular-nums">-12</span>
+                      </div>
+                      {/* Band sliders */}
+                      <div className="flex-1 flex justify-between">
+                          {Array.from({length: EQ_BAND_COUNT}, (_, i) => (
+                              <BandSlider
+                                  key={i}
+                                  index={i}
+                                  gain={eqGains[i] ?? 0}
+                                  label={EQ_LABELS[i]}
+                                  onChange={handleBandChange}
+                              />
+                          ))}
+                      </div>
+                  </div>
+              </div>
+
+              {/* Presets */}
+              <div
+                  className={`px-6 pb-5 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-30 pointer-events-none'}`}
+              >
+                  <p className="text-[11px] text-white/30 font-medium mb-2.5">{t('eq.preset')}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(EQ_PRESETS).map(([id, preset]) => (
+                          <PresetBtn
+                              key={id}
+                              id={id}
+                              label={isRu ? preset.labelRu : preset.label}
+                              active={eqPreset === id}
+                              onClick={handlePreset}
+                          />
+                      ))}
+                      {eqPreset === 'custom' && (
+                          <PresetBtn id="custom" label={t('eq.custom')} active onClick={() => {
+                          }}/>
+                      )}
+                  </div>
+              </div>
+          </ModalContent>
+      </Modal>
+  );
+});
