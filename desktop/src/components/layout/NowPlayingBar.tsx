@@ -247,7 +247,8 @@ const [eqOpen, setEqOpen] = useState(false);
                     onToggleMute={player.toggleMute}
                     accentColor={accent.base}
                     glowColor={accent.glow}
-                  />
+                    onOpenEq={() => setEqOpen(true)}
+                />
                 </View>
               </View>
 
