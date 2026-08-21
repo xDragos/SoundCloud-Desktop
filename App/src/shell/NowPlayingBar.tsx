@@ -1,6 +1,7 @@
-Import * as Popover from '@radix-ui/react-popover';
+import * as Popover from '@radix-ui/react-popover';
 import * as Slider from '@radix-ui/react-slider';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {MoreHorizontal} from 'lucide-react';
 import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router-dom';
@@ -59,8 +60,6 @@ import {UploadKindDot} from '../music/UploadKindDot';
 
 /* ── Track loading progress (SC → SCD download) ──────────────── */
 
-/** Smoothed download-progress value (0-1) for display, or null when not loading.
- *  Holds briefly after completion so a finished load doesn't flicker away. */
 function useLoadProgress(): number | null {
   const downloadProgress = useSyncExternalStore(subscribe, getDownloadProgress);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,16 +98,13 @@ function useLoadProgress(): number | null {
   return visibleProgress;
 }
 
-/** Whole percentage (1-100) shown to the user while a track loads. */
 const loadPercent = (progress: number) =>
   Math.max(1, Math.min(100, Math.round(Math.max(0, Math.min(1, progress)) * 100)));
 
-/** Accent outline that traces the capsule's perimeter as the track downloads. */
 const DockLoadingRing = React.memo(({ progress }: { progress: number | null }) => {
   if (progress == null) return null;
   return (
     <svg className="npb-loadring" aria-hidden="true">
-      {/* width/height/rx attrs are a fallback; CSS refines the 1px inset when supported */}
       <rect className="npb-loadring-track" width="100%" height="100%" rx={28} />
       <rect
         className="npb-loadring-fill"
@@ -146,20 +142,15 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
   const bPct = b != null ? clampPct((b / duration) * 100) : null;
 
   const startDrag = (which: 'a' | 'b') => (e: React.PointerEvent<HTMLSpanElement>) => {
-    // Keep Radix from treating this as a seek-on-the-track gesture.
     e.preventDefault();
     e.stopPropagation();
     const root = e.currentTarget.offsetParent as HTMLElement | null;
     if (!root) return;
     const rect = root.getBoundingClientRect();
     if (rect.width <= 0) return;
-    // Drive the overlay via direct DOM writes during the drag and commit to the store
-    // (which pushes once to Rust) only on release — avoids per-frame JS↔Rust bridge spam.
     const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
     const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
     let latest = which === 'a' ? a : (b ?? a);
-    // Time bubble above the dragged handle — driven by direct DOM writes like the
-    // handle itself, so the per-frame drag stays React-render-free.
     const showTip = (timeSec: number, pct: number) => {
       const tip = tipRef.current;
       if (!tip) return;
@@ -241,7 +232,6 @@ export const ProgressSlider = React.memo(() => {
   const rangeRef = useRef<HTMLSpanElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
 
-  // Direct DOM updates at 60fps — zero React re-renders
   useEffect(() => {
     return subscribe(() => {
       if (draggingRef.current) return;
@@ -256,8 +246,6 @@ export const ProgressSlider = React.memo(() => {
 
   const displayValue = dragging ? dragValue : syncedValue;
 
-  // Safety net: if Radix onValueCommit doesn't fire (pointer leaves window, fast flick),
-  // reset dragging state on any pointerup so the progress bar doesn't freeze.
   const pendingCommitRef = useRef<number | null>(null);
 
   const onValueChange = useCallback(([v]: number[]) => {
@@ -270,7 +258,6 @@ export const ProgressSlider = React.memo(() => {
       const resetDrag = () => {
         window.removeEventListener('pointerup', resetDrag);
         window.removeEventListener('pointercancel', resetDrag);
-        // Give Radix a frame to fire onValueCommit first
         requestAnimationFrame(() => {
           if (draggingRef.current) {
             const val = pendingCommitRef.current;
@@ -335,7 +322,6 @@ export const VolumeSlider = React.memo(({ className = '' }: { className?: string
         step={1}
         onValueChange={([v]) => setVolume(v)}
         onKeyDown={(e) => {
-          // Prevent slider from handling arrows itself, otherwise it stacks with global hotkeys.
           if (
             e.key === 'ArrowLeft' ||
             e.key === 'ArrowRight' ||
@@ -359,7 +345,6 @@ export const VolumeSlider = React.memo(({ className = '' }: { className?: string
           className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-amber-400' : 'bg-white'}`}
         />
       </Slider.Root>
-      {/* 100% tick mark (visual only, outside Slider tree) */}
       <div
         className="absolute top-1/2 -translate-y-1/2 h-[3px] w-px bg-white/20 pointer-events-none"
         style={{ left: '50%' }}
@@ -392,8 +377,6 @@ export const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'defa
   );
 });
 
-/* ── Volume % label ──────────────────────────────────────────── */
-
 export const VolumeLabel = React.memo(() => {
   const volume = usePlayerStore((s) => s.volume);
   return (
@@ -404,8 +387,6 @@ export const VolumeLabel = React.memo(() => {
     </span>
   );
 });
-
-/* ── Progress Time (updates once per second) ─────────────────── */
 
 export const ProgressTime = React.memo(() => {
   const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
@@ -686,6 +667,9 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
+/** Desktop-only trigger-based EQ button — owns its own popover state via the
+ *  uncontrolled Modal (no open/onOpenChange passed). Mobile uses a separate,
+ *  externally-controlled EqualizerPanel instance — see MoreMenu/NowPlayingBar. */
 const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   return (
@@ -749,7 +733,6 @@ export const PlaybackRateSlider = React.memo(() => {
         </Slider.Track>
         <Slider.Thumb className="block h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] outline-none transition-all duration-150 scale-0 opacity-0 group-hover/rate:scale-100 group-hover/rate:opacity-100" />
       </Slider.Root>
-      {/* 1.00x tick mark */}
       <div className="relative mt-1 h-2 w-full pointer-events-none">
         <div
           className="absolute top-0 h-1.5 w-px bg-white/15"
@@ -862,7 +845,6 @@ export const PitchSlider = React.memo(() => {
         </Slider.Track>
         <Slider.Thumb className="block h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] outline-none transition-all duration-150 scale-0 opacity-0 group-hover/pitch:scale-100 group-hover/pitch:opacity-100 disabled:scale-0 disabled:opacity-0" />
       </Slider.Root>
-      {/* 0 semi tick */}
       <div className="relative mt-1 h-2 w-full pointer-events-none">
         <div className="absolute top-0 h-1.5 w-px bg-white/15" style={{ left: '50%' }} />
       </div>
@@ -919,6 +901,116 @@ const TuningBtn = React.memo(() => {
   );
 });
 
+/* ── Mobile "more" menu ────────────────────────────────────────
+ * Phone width collapses the row to art + shuffle + prev + play + next + •••.
+ * Everything else moves here. CRITICAL: this popover only ever holds
+ * self-contained controls (repeat, AB-loop, tuning, lyrics toggle, queue,
+ * volume) whose own state lives outside this component (zustand stores).
+ * The EQ button does NOT render <EqualizerPanel> in here — it only calls
+ * onOpenEq() and closes itself. EqualizerPanel itself is mounted once, by
+ * NowPlayingBar, completely outside this popover — so closing this menu can
+ * never unmount it (that was the bug: EQ used to live inside this popover's
+ * tree and vanished the instant the menu closed). */
+const MoreMenuRow = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex items-center justify-between gap-3 px-1 py-1.5">{children}</div>
+);
+
+const MoreMenuLabel = ({ children }: { children: React.ReactNode }) => (
+  <span className="text-[12px] font-medium text-white/55">{children}</span>
+);
+
+const MoreMenu = React.memo(({ onOpenEq }: { onOpenEq: () => void }) => {
+  const { t } = useTranslation();
+  const urn = usePlayerStore((s) => s.currentTrack?.urn);
+  const [queueOpenLocal, setQueueOpenLocal] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          title={t('player.more', { defaultValue: 'More' })}
+          aria-label={t('player.more', { defaultValue: 'More' })}
+          className={btnClass(false, 'default')}
+        >
+          <MoreHorizontal size={18} />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="end"
+          sideOffset={10}
+          collisionPadding={12}
+          className="z-[200] w-[280px] max-h-[70vh] overflow-y-auto origin-bottom-right rounded-[18px] border border-white/[0.10] bg-[#101012]/96 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl outline-none data-[state=open]:animate-fade-in-up"
+        >
+          <div className="absolute inset-x-0 top-0 h-12 rounded-t-[18px] bg-gradient-to-b from-white/[0.05] to-transparent pointer-events-none" />
+          <div className="relative space-y-1">
+            {urn && (
+              <MoreMenuRow>
+                <MoreMenuLabel>{t('track.likes')}</MoreMenuLabel>
+                <ReactCluster />
+              </MoreMenuRow>
+            )}
+
+            <MoreMenuRow>
+              <MoreMenuLabel>{t('kb.groupPlayback')}</MoreMenuLabel>
+              <div className="flex items-center gap-0.5">
+                <RepeatBtn />
+                <AbLoopBtn />
+              </div>
+            </MoreMenuRow>
+
+            <MoreMenuRow>
+              <MoreMenuLabel>{t('player.soundTuning')}</MoreMenuLabel>
+              <div className="flex items-center gap-0.5">
+                <TuningBtn />
+                {/* EQ button: closes this menu and asks the parent to open
+                    the externally-mounted EqualizerPanel. Does NOT render
+                    EqualizerPanel itself — see the comment above MoreMenu. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenEq();
+                  }}
+                  className={btnClass(false, 'sm')}
+                >
+                  {audioLines16}
+                </button>
+              </div>
+            </MoreMenuRow>
+
+            <MoreMenuRow>
+              <MoreMenuLabel>{t('kb.groupPanels')}</MoreMenuLabel>
+              <div className="flex items-center gap-0.5">
+                <span onClick={() => setOpen(false)}>
+                  <LyricsBtn />
+                </span>
+                <QueueBtn onClick={() => setQueueOpenLocal((v) => !v)} active={queueOpenLocal} />
+              </div>
+            </MoreMenuRow>
+
+            <div className="rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
+                  {t('player.volume', { defaultValue: 'Volume' })}
+                </span>
+                <VolumeLabel />
+              </div>
+              <div className="flex items-center gap-2">
+                <ControlVolumeBtn size="sm" />
+                <VolumeSlider className="flex-1" />
+              </div>
+            </div>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+});
+
 /* ── Track meta (art + title) for the pill ───────────────────── */
 
 const PillTrack = React.memo(({ loadProgress }: { loadProgress: number | null }) => {
@@ -962,7 +1054,6 @@ const PillTrackBody = React.memo(function PillTrackBody({
     <div className="npb-meta">
       <div className="npb-art" onClick={() => openLyricsPanel({ rightPanelOpen: false })}>
         {artworkSmall ? <img src={artworkSmall} alt="" /> : <div className="npb-artfb" />}
-        {/* spinning vinyl ring + live "playing" equaliser — animated only while playing */}
         <span className="npb-ring" />
         <span className="npb-eq">
           <i />
@@ -998,7 +1089,6 @@ const ReactCluster = React.memo(() => {
   return <ReactClusterBody urn={urn} />;
 });
 
-// Single track-query + dislike observer shared by both reaction buttons.
 const ReactClusterBody = React.memo(({ urn }: { urn: string }) => {
   const trackData = useTrackReactions(urn);
   const disliked = useDislikeStatus(urn);
@@ -1024,7 +1114,6 @@ const LaneTimes = React.memo(() => {
   );
 });
 
-/* Pause looping animations while the window is hidden (WebView doesn't throttle). */
 function useDocHidden(): boolean {
   const [hidden, setHidden] = useState(
     () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
@@ -1036,8 +1125,6 @@ function useDocHidden(): boolean {
   }, []);
   return hidden;
 }
-
-/* ── Background glow ─────────────────────────────────────────── */
 
 const BackgroundGlow = React.memo(() => {
   const perf = usePerfMode();
@@ -1068,6 +1155,11 @@ export const NowPlayingBar = React.memo(
     const playingNow = isPlaying && !hidden;
     const loadProgress = useLoadProgress();
 
+    // Lives here — at the top of NowPlayingBar, which never unmounts while a
+    // track is loaded — NOT inside MoreMenu's Popover.Content. That's the fix:
+    // closing the "more" menu no longer tears down the EQ panel with it.
+    const [eqOpen, setEqOpen] = useState(false);
+
     return (
       <div className="npb">
         <BackgroundGlow />
@@ -1077,15 +1169,13 @@ export const NowPlayingBar = React.memo(
           className={`npb-dock${loadProgress != null ? ' is-loading' : ''}`}
           data-playing={playingNow ? 'true' : 'false'}
         >
-          {/* glass — the only backdrop-filter, isolated in its own layer */}
           <div className="npb-glass" />
 
-          {/* accent outline that fills as the track downloads (SC → SCD) */}
           <DockLoadingRing progress={loadProgress} />
 
-          {/* content — repaints here never re-blur the glass below */}
           <div className="npb-content">
-            <div className="npb-row">
+            {/* ── Desktop row (≥768px): unchanged from before ── */}
+            <div className="npb-row npb-row-desktop">
               <PillTrack loadProgress={loadProgress} />
               <ReactCluster />
 
@@ -1115,12 +1205,30 @@ export const NowPlayingBar = React.memo(
               </div>
             </div>
 
+            {/* ── Phone row (<768px): art + core transport + one "more" button ── */}
+            <div className="npb-row npb-row-mobile">
+              <PillTrack loadProgress={loadProgress} />
+
+              <div className="flex items-center gap-0.5 ml-auto">
+                <ShuffleBtn />
+                <PrevBtn />
+                <PlayPauseBtn />
+                <NextBtn />
+                <MoreMenu onOpenEq={() => setEqOpen(true)} />
+              </div>
+            </div>
+
             <div className="npb-lane">
               <LaneTimes />
               <ProgressSlider />
             </div>
           </div>
         </div>
+
+        {/* Mounted once, directly under NowPlayingBar — outside MoreMenu's
+            popover tree entirely, so it survives that popover opening/closing.
+            No trigger (no `children`): open state is fully external. */}
+        <EqualizerPanel open={eqOpen} onOpenChange={setEqOpen} />
       </div>
     );
   },
