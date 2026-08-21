@@ -23,12 +23,14 @@ export function Extras({
   onToggleMute,
   accentColor,
   glowColor,
+  onOpenEq,
 }: {
   volume: number;
   onSetVolume: (v: number) => void;
   onToggleMute: () => void;
   accentColor: string;
   glowColor: string;
+  onOpenEq: () => void;
 }) {
   const idle = 'rgba(255,255,255,0.55)';
 
@@ -45,17 +47,14 @@ export function Extras({
     /*
      * Important for iPhone:
      *
-     * TuningBtn is a local popover, while Equalizer is a global panel.
-     * Close the local popover first so it cannot remain visible above/below
-     * the EQ overlay.
+     * TuningBtn is a local popover, while Equalizer is mounted
+     * directly by NowPlayingBar.
+     *
+     * Close the local popover first, then tell NowPlayingBar
+     * to open the global EQ panel.
      */
     setTuningOpen(false);
-
-    /*
-     * panels.toggle() also guarantees that only one global panel
-     * (queue / eq) can be open at a time.
-     */
-    panels.toggle('eq');
+    onOpenEq();
   };
 
   const toggleQueue = () => {
